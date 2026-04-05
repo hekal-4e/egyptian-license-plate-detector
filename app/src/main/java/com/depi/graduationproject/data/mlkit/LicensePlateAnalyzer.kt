@@ -65,7 +65,7 @@ class LicensePlateAnalyzer(private val context: Context) {
 
                 if (results.isEmpty()) {
                     return@withContext PlateAnalysisResult(
-                        false, "", workingBitmap, "No Plate Found"
+                        false, "", workingBitmap, "لم يتم العثور على لوحة (حاول الاقتراب)"
                     )
                 }
 

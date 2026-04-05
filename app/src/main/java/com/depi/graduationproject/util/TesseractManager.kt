@@ -30,14 +30,12 @@ class TesseractManager(private val context: Context) {
             val success = tessApi.init(dataPath, "ara", TessBaseAPI.OEM_LSTM_ONLY)
 
             if (success) {
-                val whitelist = "0123456789" +
-                        "٠١٢٣٤٥٦٧٨٩" +
-                        "أبجدرسصطعفقكلمنهوي" +
-                        " "
-
+                // Allow Arabic digits, English digits, and Arabic plate letters
+                val whitelist = "0123456789٠١٢٣٤٥٦٧٨٩أبجدرسصطعفقكلمنهوي "
+                
                 tessApi.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, whitelist)
 
-                // 🔥 تغيير PSM لـ SPARSE_TEXT أنسب لاللوحات
+                // Ÿ” ŠŠ PSM „€ SPARSE_TEXT † „„„ˆ
                 tessApi.pageSegMode = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT
 
                 // 🔥 إعدادات إضافية لتحسين الدقة
