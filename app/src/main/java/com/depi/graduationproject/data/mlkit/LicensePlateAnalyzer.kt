@@ -16,6 +16,32 @@ class LicensePlateAnalyzer(private val context: Context) {
     private lateinit var detector: YoloDetector
     private val tesseract = TesseractManager(context)
 
+    // ═══════════════════════════════════════════════════════════════
+    // Arabic Letter Correction Map
+    // Tesseract commonly confuses these visually similar characters
+    // ═══════════════════════════════════════════════════════════════
+    private val arabicCorrectionMap = mapOf(
+        'ا' to 'أ',  // Alef without hamza → with hamza
+        'ى' to 'ي',  // Alef maqsura → Ya
+        'ة' to 'ه',  // Ta marbuta → Ha
+        'ت' to 'ب',  // Ta → Ba (common misread on plates)
+        'ث' to 'ب',  // Tha → Ba
+        'ذ' to 'د',  // Thal → Dal
+        'ز' to 'ر',  // Zay → Ra
+        'ش' to 'س',  // Shin → Sin
+        'ض' to 'ص',  // Dad → Sad
+        'ظ' to 'ط',  // Dha → Ta
+        'غ' to 'ع',  // Ghain → Ain
+        'ح' to 'ج',  // Ha → Jim
+        'خ' to 'ج',  // Kha → Jim
+        'ئ' to 'ي',  // Ya with hamza → Ya
+        'ؤ' to 'و',  // Waw with hamza → Waw
+        'إ' to 'أ',  // Alef with hamza below → with hamza above
+        'آ' to 'أ',  // Alef madda → Alef hamza
+    )
+
+    private val validPlateLetters = "أبجدرسصطعفقكلمنهوي"
+
     fun initialize() {
         try {
             detector = YoloDetector(context, "best.tflite")
@@ -73,21 +99,37 @@ class LicensePlateAnalyzer(private val context: Context) {
                 val plateBox = results[0].boundingBox
                 val paddedBitmap = cropWithPadding(workingBitmap, plateBox, 20)
 
-                // 3️⃣ Resize ثابت - الـ TesseractManager هيكبره داخلياً
-                val resizedBitmap = Bitmap.createScaledBitmap(paddedBitmap, 600, 200, true)
+                // Keep a display-sized bitmap for the bottom sheet UI
+                val displayBitmap = Bitmap.createScaledBitmap(paddedBitmap, 600, 200, true)
 
-                // 4️⃣ OCR
-                val rawText = tesseract.recognize(resizedBitmap)
-                Log.d("OCR_TESS", "Raw Output: '$rawText'")
+                // 3️⃣ Crop bottom portion only — Egyptian plates have 2 rows:
+                //    Top row: "EGYPT مصر" (header — not needed)
+                //    Bottom row: "ص و ن ٩٤٣٥" (actual plate text)
+                //    PSM 7 needs exactly ONE line, so we isolate the bottom row.
+                val bottomCrop = cropBottomPortion(paddedBitmap, 0.45f)
+                Log.d("OCR_TESS", "Plate: ${paddedBitmap.width}x${paddedBitmap.height} → Bottom: ${bottomCrop.width}x${bottomCrop.height}")
 
-                // 5️⃣ تنظيف النص
-                val finalText = filterText(rawText)
+                // 4️⃣ OCR — send bottom crop to TesseractManager
+                val rawText = tesseract.recognize(bottomCrop)
+                Log.d("OCR_TESS", "Raw Output (bottom): '$rawText'")
+
+                // 4b️⃣ Fallback: if bottom crop returned nothing, try full plate
+                val effectiveRaw = if (rawText.isBlank()) {
+                    Log.d("OCR_TESS", "⚠️ Bottom crop empty, trying full plate...")
+                    tesseract.recognize(paddedBitmap)
+                } else {
+                    rawText
+                }
+                Log.d("OCR_TESS", "Effective Raw: '$effectiveRaw'")
+
+                // 5️⃣ Clean and correct the text
+                val finalText = filterText(effectiveRaw)
                 Log.d("OCR_TESS", "Filtered Output: '$finalText'")
 
                 return@withContext if (finalText.isNotBlank()) {
-                    PlateAnalysisResult(true, finalText, resizedBitmap, "Read: $finalText")
+                    PlateAnalysisResult(true, finalText, displayBitmap, "Read: $finalText")
                 } else {
-                    PlateAnalysisResult(false, rawText, resizedBitmap, "Text Unclear")
+                    PlateAnalysisResult(false, effectiveRaw, displayBitmap, "Text Unclear")
                 }
 
             } catch (e: Exception) {
@@ -110,17 +152,41 @@ class LicensePlateAnalyzer(private val context: Context) {
         return Bitmap.createBitmap(source, left, top, width, height)
     }
 
-    // 🔥 filterText محسّنة - تفصل الأرقام عن الحروف بشكل صح
+    /**
+     * Crops only the bottom portion of the plate image.
+     * Egyptian plates have "EGYPT مصر" on top — we skip that header.
+     * @param skipTopRatio 0.45 = skip top 45%, keep bottom 55%
+     */
+    private fun cropBottomPortion(bitmap: Bitmap, skipTopRatio: Float): Bitmap {
+        val skipPixels = (bitmap.height * skipTopRatio).toInt().coerceAtMost(bitmap.height - 1)
+        val cropHeight = bitmap.height - skipPixels
+        return Bitmap.createBitmap(bitmap, 0, skipPixels, bitmap.width, cropHeight)
+    }
+
+    private fun correctArabicChar(c: Char): Char {
+        // If it's already a valid plate letter, keep it
+        if (validPlateLetters.contains(c)) return c
+        // Try correction map
+        return arabicCorrectionMap[c] ?: c
+    }
+
+    /**
+     * Improved filterText:
+     * 1. Corrects common Arabic OCR mistakes via correction map
+     * 2. Converts Arabic digits (٠-٩) → English digits (0-9)
+     * 3. Separates letters from digits
+     * 4. Produces clean "letters digits" format for Egyptian plates
+     */
     private fun filterText(text: String): String {
         val digits = StringBuilder()
         val letters = StringBuilder()
 
         for (char in text) {
             when {
-                // أرقام إنجليزية
+                // English digits
                 char.isDigit() -> digits.append(char)
 
-                // أرقام عربية - تحويل لإنجليزية
+                // Arabic digits → English
                 char == '٠' -> digits.append('0')
                 char == '١' -> digits.append('1')
                 char == '٢' -> digits.append('2')
@@ -132,27 +198,31 @@ class LicensePlateAnalyzer(private val context: Context) {
                 char == '٨' -> digits.append('8')
                 char == '٩' -> digits.append('9')
 
-                // حروف اللوحة العربية الصحيحة فقط
-                isValidArabicPlateChar(char) -> letters.append(char).append(" ")
+                // Arabic letters — apply correction first, then validate
+                char.code in 0x0600..0x06FF -> {
+                    val corrected = correctArabicChar(char)
+                    if (validPlateLetters.contains(corrected)) {
+                        letters.append(corrected)
+                        letters.append(" ")
+                    }
+                }
             }
         }
 
         val lettersStr = letters.toString().trim()
         val digitsStr = digits.toString().trim()
 
-        // اللوحة المصرية: حروف على اليمين + أرقام على اليسار
-        // مثال: "ص و ن 9432"
-        val result = buildString {
+        // Egyptian plate format: letters on right + digits on left
+        // Example: "ص و ن 9432"
+        return buildString {
             if (lettersStr.isNotEmpty()) append(lettersStr)
             if (lettersStr.isNotEmpty() && digitsStr.isNotEmpty()) append(" ")
             if (digitsStr.isNotEmpty()) append(digitsStr)
-        }
-
-        return result.trim().replace("  ", " ")
+        }.trim().replace("  ", " ")
     }
 
     private fun isValidArabicPlateChar(c: Char): Boolean {
-        return "أبجدرسصطعفقكلمنهوي".contains(c)
+        return validPlateLetters.contains(c)
     }
 
     fun close() {
