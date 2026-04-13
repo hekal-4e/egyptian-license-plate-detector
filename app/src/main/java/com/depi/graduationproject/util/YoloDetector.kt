@@ -147,4 +147,10 @@ class YoloDetector(context: Context, modelPath: String) {
 
         return results.sortedByDescending { it.boundingBox.width() * it.boundingBox.height() }.take(1)
     }
+
+    fun close() {
+        if (::interpreter.isInitialized) {
+            interpreter.close()
+        }
+    }
 }

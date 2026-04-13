@@ -64,31 +64,21 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // ML Kit Text Recognition
-    //implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
-    //implementation("com.google.mlkit:object-detection-custom:17.0.0")
-
-    //Tesseract
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
-
-    //TensorFlow Lite
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-
-    //Room Database
-    val room_version = "2.6.1"
-    ksp("androidx.room:room-compiler:$room_version")
-    implementation("androidx.room:room-runtime:$room_version")
-    implementation("androidx.room:room-ktx:$room_version")
-
-    //Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
-
-    //Tensorflow
+    // TensorFlow Lite
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
 
-    //Coroutines
+    // Room Database
+    val roomVersion = "2.6.1"
+    ksp("androidx.room:room-compiler:$roomVersion")
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Material 3 & Icons
@@ -97,5 +87,4 @@ dependencies {
 
     // QR Code Generation
     implementation("com.google.zxing:core:3.5.3")
-
 }

@@ -6,5 +6,6 @@ data class PlateAnalysisResult(
     val isSuccess: Boolean,
     val text: String,
     val bitmap: Bitmap?,
-    val message: String
+    val message: String,
+    val confidence: Float = 0f
 )
