@@ -2,12 +2,12 @@ package com.depi.graduationproject.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import com.depi.graduationproject.data.mlkit.LicensePlateAnalyzer
+import com.depi.graduationproject.data.mlkit.IPlateAnalyzer
 import com.depi.graduationproject.repository.PlateRepository
 
 class MainViewModelFactory(
     private val repository: PlateRepository,
-    private val analyzer: LicensePlateAnalyzer
+    private val analyzer: IPlateAnalyzer
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {

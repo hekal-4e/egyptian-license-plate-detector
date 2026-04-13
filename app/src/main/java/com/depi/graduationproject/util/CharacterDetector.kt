@@ -120,6 +120,9 @@ class CharacterDetector(
         val pixelCount = inputWidth * inputHeight
         val pixels = IntArray(pixelCount)
         resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
+        if (resized !== bitmap) {
+            resized.recycle()
+        }
 
         val bytesPerChannel = if (inputDataType == DataType.FLOAT32) 4 else 1
         val buffer = ByteBuffer.allocateDirect(pixelCount * 3 * bytesPerChannel)
@@ -334,8 +337,7 @@ class CharacterDetector(
             val current = sorted.removeAt(0)
             selected.add(current)
             sorted.removeAll { candidate ->
-                candidate.symbol == current.symbol &&
-                    intersectionOverUnion(current.boundingBox, candidate.boundingBox) > iouThreshold
+                intersectionOverUnion(current.boundingBox, candidate.boundingBox) > iouThreshold
             }
         }
 

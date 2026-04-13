@@ -11,12 +11,12 @@ import com.depi.graduationproject.util.YoloDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class LicensePlateAnalyzer(private val context: Context) {
+class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
     private lateinit var plateDetector: YoloDetector
     private lateinit var characterDetector: CharacterDetector
 
-    fun initialize() {
+    override fun initialize() {
         try {
             plateDetector = YoloDetector(context, "best.tflite")
             characterDetector = CharacterDetector(context, "yolo11m_car_plate_ocr_int8.tflite")
@@ -26,12 +26,12 @@ class LicensePlateAnalyzer(private val context: Context) {
         }
     }
 
-    fun isInitialized(): Boolean =
+    override fun isInitialized(): Boolean =
         ::plateDetector.isInitialized &&
             plateDetector.isInitialized &&
             ::characterDetector.isInitialized
 
-    suspend fun analyze(originalBitmap: Bitmap): PlateAnalysisResult =
+    override suspend fun analyze(originalBitmap: Bitmap): PlateAnalysisResult =
         withContext(Dispatchers.Default) {
             if (!isInitialized()) {
                 return@withContext PlateAnalysisResult(
@@ -57,7 +57,7 @@ class LicensePlateAnalyzer(private val context: Context) {
 
                 val (frameBitmap, plateBoundingBox) = detection
                 val plateBitmap = cropWithPadding(frameBitmap, plateBoundingBox, 20)
-                val displayBitmap = Bitmap.createScaledBitmap(plateBitmap, 600, 200, true)
+                val displayBitmap = createDisplayBitmap(plateBitmap)
 
                 val characterDetections = characterDetector.detect(plateBitmap)
                 val reconstructedText = characterDetector.reconstructPlateText(characterDetections)
@@ -121,7 +121,7 @@ class LicensePlateAnalyzer(private val context: Context) {
         return Bitmap.createBitmap(source, left, top, width, height)
     }
 
-    fun close() {
+    override fun close() {
         if (::plateDetector.isInitialized) {
             plateDetector.close()
         }
@@ -130,8 +130,16 @@ class LicensePlateAnalyzer(private val context: Context) {
         }
     }
 
+    private fun createDisplayBitmap(plateBitmap: Bitmap): Bitmap {
+        if (plateBitmap.width <= DISPLAY_WIDTH_PX) return plateBitmap
+        val scale = DISPLAY_WIDTH_PX.toFloat() / plateBitmap.width.toFloat()
+        val targetHeight = (plateBitmap.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(plateBitmap, DISPLAY_WIDTH_PX, targetHeight, true)
+    }
+
     companion object {
         private const val TAG = "LicensePlateAnalyzer"
         private const val MIN_PLATE_CONFIDENCE = 0.40f
+        private const val DISPLAY_WIDTH_PX = 600
     }
 }

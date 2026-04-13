@@ -4,8 +4,8 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.depi.graduationproject.data.mlkit.IPlateAnalyzer
 import com.depi.graduationproject.data.model.PlateAnalysisResult
-import com.depi.graduationproject.data.mlkit.LicensePlateAnalyzer
 import com.depi.graduationproject.repository.PlateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val repository: PlateRepository,
-    private val analyzer: LicensePlateAnalyzer
+    private val analyzer: IPlateAnalyzer
 ) : ViewModel() {
 
     val platesState = repository.getAllPlates()
@@ -87,5 +87,10 @@ class MainViewModel(
 
     fun clearAllHistory() {
         viewModelScope.launch { repository.clearAll() }
+    }
+
+    override fun onCleared() {
+        analyzer.close()
+        super.onCleared()
     }
 }

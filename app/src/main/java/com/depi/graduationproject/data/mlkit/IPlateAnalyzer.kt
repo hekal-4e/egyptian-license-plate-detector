@@ -7,4 +7,5 @@ interface IPlateAnalyzer {
     fun initialize()
     fun isInitialized(): Boolean
     suspend fun analyze(originalBitmap: Bitmap): PlateAnalysisResult
+    fun close()
 }
