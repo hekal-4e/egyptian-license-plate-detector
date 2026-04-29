@@ -14,3 +14,9 @@
 .cxx
 local.properties
 .kotlin/errors/*.log
+.github
+.specify
+.agents
+AGENTS.md
+docs
+.vscode
