@@ -6,7 +6,7 @@ import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.Log
 import com.depi.graduationproject.data.model.PlateAnalysisResult
-import com.depi.graduationproject.util.CharacterDetector
+import com.depi.graduationproject.util.CrnnPlateReader
 import com.depi.graduationproject.util.YoloDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,22 +14,24 @@ import kotlinx.coroutines.withContext
 class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
     private lateinit var plateDetector: YoloDetector
-    private lateinit var characterDetector: CharacterDetector
+    private lateinit var plateReader: CrnnPlateReader
+
+    override val ocrModelName: String = "CRNN"
 
     override fun initialize() {
         try {
             plateDetector = YoloDetector(context, "best.tflite")
-            characterDetector = CharacterDetector(context, "yolo11m_car_plate_ocr_int8.tflite")
-            Log.d(TAG, "Dual-YOLO pipeline ready")
+            plateReader = CrnnPlateReader(context, "plate_ocr_v3_fp16.tflite")
+            Log.d(TAG, "YOLO+CRNN pipeline ready")
         } catch (exception: Exception) {
-            Log.e(TAG, "Failed to initialize Dual-YOLO pipeline", exception)
+            Log.e(TAG, "Failed to initialize YOLO+CRNN pipeline", exception)
         }
     }
 
     override fun isInitialized(): Boolean =
         ::plateDetector.isInitialized &&
             plateDetector.isInitialized &&
-            ::characterDetector.isInitialized
+            ::plateReader.isInitialized
 
     override suspend fun analyze(originalBitmap: Bitmap): PlateAnalysisResult =
         withContext(Dispatchers.Default) {
@@ -43,8 +45,9 @@ class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
                 )
             }
 
+            val rotatedBitmapRef = arrayOf<Bitmap?>(null)
             try {
-                val detection = detectPlateWithRotationFallback(originalBitmap)
+                val detection = detectPlateWithRotationFallback(originalBitmap, rotatedBitmapRef)
                 if (detection == null) {
                     return@withContext PlateAnalysisResult(
                         isSuccess = false,
@@ -59,14 +62,14 @@ class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
                 val plateBitmap = cropWithPadding(frameBitmap, plateBoundingBox, 20)
                 val displayBitmap = createDisplayBitmap(plateBitmap)
 
-                val characterDetections = characterDetector.detect(plateBitmap)
-                val reconstructedText = characterDetector.reconstructPlateText(characterDetections)
-                val averageConfidence = characterDetections
-                    .map { it.confidence }
-                    .average()
-                    .toFloat()
-                    .takeIf { !it.isNaN() }
-                    ?: 0f
+                val readResult = plateReader.read(plateBitmap)
+                val reconstructedText = readResult.text
+                val averageConfidence = readResult.confidence
+
+                // Recycle the cropped bitmap after use
+                if (plateBitmap !== frameBitmap && plateBitmap !== originalBitmap) {
+                    plateBitmap.recycle()
+                }
 
                 val isSuccess = reconstructedText.isNotBlank() && averageConfidence >= MIN_PLATE_CONFIDENCE
 
@@ -86,16 +89,20 @@ class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
                     message = "Error: ${exception.message}",
                     confidence = 0f
                 )
+            } finally {
+                // Recycle rotated bitmap if it was created
+                rotatedBitmapRef[0]?.recycle()
             }
         }
 
-    private fun detectPlateWithRotationFallback(bitmap: Bitmap): Pair<Bitmap, RectF>? {
+    private fun detectPlateWithRotationFallback(bitmap: Bitmap, rotatedBitmapRef: Array<Bitmap?>): Pair<Bitmap, RectF>? {
         val directDetection = plateDetector.detect(bitmap).firstOrNull()
         if (directDetection != null) {
             return bitmap to directDetection.boundingBox
         }
 
         val rotatedBitmap = rotateBitmap(bitmap, 90f)
+        rotatedBitmapRef[0] = rotatedBitmap
         val rotatedDetection = plateDetector.detect(rotatedBitmap).firstOrNull()
         if (rotatedDetection != null) {
             return rotatedBitmap to rotatedDetection.boundingBox
@@ -125,8 +132,8 @@ class LicensePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
         if (::plateDetector.isInitialized) {
             plateDetector.close()
         }
-        if (::characterDetector.isInitialized) {
-            characterDetector.close()
+        if (::plateReader.isInitialized) {
+            plateReader.close()
         }
     }
 

@@ -7,8 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.depi.graduationproject.data.mlkit.IPlateAnalyzer
 import com.depi.graduationproject.data.model.PlateAnalysisResult
 import com.depi.graduationproject.repository.PlateRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -28,8 +31,16 @@ class MainViewModel(
     private val _showDialog = MutableStateFlow(false)
     val showDialog: StateFlow<Boolean> = _showDialog.asStateFlow()
 
+    private val _eventFlow = MutableSharedFlow<String>()
+    val eventFlow = _eventFlow.asSharedFlow()
+
     init {
-        analyzer.initialize()
+        viewModelScope.launch(Dispatchers.IO) {
+            analyzer.initialize()
+            if (analyzer.isInitialized()) {
+                _eventFlow.emit("Active OCR Model: ${analyzer.ocrModelName}")
+            }
+        }
     }
 
     fun processImage(bitmap: Bitmap) {

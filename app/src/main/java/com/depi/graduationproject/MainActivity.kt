@@ -60,6 +60,16 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            viewModel.eventFlow.collect { message ->
+                                android.widget.Toast.makeText(
+                                    this@MainActivity,
+                                    message,
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+
                         val isLoading by viewModel.isLoading.collectAsState()
                         val showDialog by viewModel.showDialog.collectAsState()
                         val result by viewModel.analysisResult.collectAsState()

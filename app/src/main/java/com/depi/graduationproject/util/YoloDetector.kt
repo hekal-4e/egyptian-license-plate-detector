@@ -145,7 +145,42 @@ class YoloDetector(context: Context, modelPath: String) {
             }
         }
 
-        return results.sortedByDescending { it.boundingBox.width() * it.boundingBox.height() }.take(1)
+        // Apply Non-Maximum Suppression (NMS)
+        val nmsResults = applyNms(results, iouThreshold = 0.45f)
+
+        return nmsResults.sortedByDescending { it.boundingBox.width() * it.boundingBox.height() }.take(1)
+    }
+
+    private fun applyNms(detections: List<DetectionResult>, iouThreshold: Float): List<DetectionResult> {
+        if (detections.isEmpty()) return emptyList()
+
+        val sorted = detections.sortedByDescending { it.confidence }.toMutableList()
+        val keep = mutableListOf<DetectionResult>()
+
+        while (sorted.isNotEmpty()) {
+            val current = sorted.removeAt(0)
+            keep.add(current)
+
+            sorted.removeAll { computeIou(current.boundingBox, it.boundingBox) > iouThreshold }
+        }
+
+        return keep
+    }
+
+    private fun computeIou(a: RectF, b: RectF): Float {
+        val xLeft = max(a.left, b.left)
+        val yTop = max(a.top, b.top)
+        val xRight = min(a.right, b.right)
+        val yBottom = min(a.bottom, b.bottom)
+
+        if (xRight < xLeft || yBottom < yTop) return 0f
+
+        val intersection = (xRight - xLeft) * (yBottom - yTop)
+        val areaA = (a.right - a.left) * (a.bottom - a.top)
+        val areaB = (b.right - b.left) * (b.bottom - b.top)
+        val union = areaA + areaB - intersection
+
+        return if (union > 0) intersection / union else 0f
     }
 
     fun close() {
