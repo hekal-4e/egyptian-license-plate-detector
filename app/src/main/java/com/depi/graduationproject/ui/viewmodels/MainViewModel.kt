@@ -4,8 +4,8 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.depi.graduationproject.data.mlkit.IPlateAnalyzer
-import com.depi.graduationproject.data.model.PlateAnalysisResult
+import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
+import com.depi.graduationproject.domain.model.PlateAnalysisResult
 import com.depi.graduationproject.repository.PlateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,7 +47,11 @@ class MainViewModel(
         viewModelScope.launch {
             _isLoading.value = true
 
-            val result = analyzer.analyze(bitmap)
+            val stream = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
+            val byteArray = stream.toByteArray()
+
+            val result = analyzer.analyze(byteArray)
 
             _analysisResult.value = result
             _isLoading.value = false

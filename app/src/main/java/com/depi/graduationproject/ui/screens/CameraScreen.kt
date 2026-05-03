@@ -25,7 +25,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.depi.graduationproject.ui.components.CameraControls
 import com.depi.graduationproject.ui.viewmodels.MainViewModel
-import com.depi.graduationproject.util.CameraUtils
+import com.depi.graduationproject.presentation.components.CameraUtils
 
 @Composable
 fun CameraScreen(

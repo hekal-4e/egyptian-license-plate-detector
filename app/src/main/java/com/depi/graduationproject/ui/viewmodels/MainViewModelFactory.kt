@@ -2,7 +2,7 @@ package com.depi.graduationproject.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import com.depi.graduationproject.data.mlkit.IPlateAnalyzer
+import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
 import com.depi.graduationproject.repository.PlateRepository
 
 class MainViewModelFactory(

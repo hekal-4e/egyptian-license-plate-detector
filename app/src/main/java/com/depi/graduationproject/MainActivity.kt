@@ -24,15 +24,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import com.depi.graduationproject.data.local.AppDataBase
-import com.depi.graduationproject.data.mlkit.LicensePlateAnalyzer
+import com.depi.graduationproject.data.mlkit.TFLitePlateAnalyzer
 import com.depi.graduationproject.repository.PlateRepository
 import com.depi.graduationproject.ui.components.PlateResultBottomSheet
-import com.depi.graduationproject.ui.navigation.AppNavigation
+import com.depi.graduationproject.core.navigation.AppNavigation
 import com.depi.graduationproject.ui.screens.PermissionDeniedScreen
-import com.depi.graduationproject.ui.designsystem.GraduationProjectTheme
+import com.depi.graduationproject.core.theme.GraduationProjectTheme
 import com.depi.graduationproject.ui.viewmodels.MainViewModel
 import com.depi.graduationproject.ui.viewmodels.MainViewModelFactory
-import com.depi.graduationproject.util.CameraPermissionWrapper
+import com.depi.graduationproject.presentation.components.CameraPermissionWrapper
 
 class MainActivity : ComponentActivity() {
 
@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDataBase.invoke(applicationContext)
         val repository = PlateRepository(db.plateDao())
-        val analyzer = LicensePlateAnalyzer(applicationContext)
+        val analyzer = TFLitePlateAnalyzer(applicationContext)
         val factory = MainViewModelFactory(repository, analyzer)
         viewModel = ViewModelProvider(this, factory)[MainViewModel::class.java]
 
@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 PlateResultBottomSheet(
                                     plateNumber = result!!.text,
-                                    plateImage = result!!.bitmap,
+                                    plateImage = result!!.imageBytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) },
                                     onSave = { editedText ->
                                         viewModel.onPlateDetected(editedText)
                                         viewModel.dismissDialog()
