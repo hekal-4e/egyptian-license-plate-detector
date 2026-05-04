@@ -22,5 +22,11 @@ docs
 .vscode
 specs
 plan.md
-specs
-plan.md
+
+# Kotlin / Android
+build/
+out/
+*.class
+*.jar
+*.log
+.env*

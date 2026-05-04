@@ -14,8 +14,28 @@
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-renamesourcefileattribute SourceFile
+
+# TFLite
+-keep class org.tensorflow.lite.** { *; }
+
+# Room
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class *
+
+# Supabase / Ktor Serialization
+-keep class io.github.jan.supabase.** { *; }
+-keep class io.ktor.** { *; }
+-keep class kotlinx.serialization.** { *; }
+-keepattributes *Annotation*, InnerClasses
+-keep,allowobfuscation,allowshrinking class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keep,allowobfuscation,allowshrinking class kotlinx.coroutines.android.AndroidExceptionPreHandler {}
+-keep,allowobfuscation,allowshrinking class kotlinx.coroutines.android.AndroidDispatcherFactory {}
+
+# ZXing
+-keep class com.google.zxing.** { *; }

@@ -1,22 +1,29 @@
 package com.depi.graduationproject.core.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-// الألوان الأساسية (Vibrant & Professional)
-val PrimaryBlue = Color(0xFF006C84) // أزرق بحري عميق (للعناوين والأزرار الرئيسية)
-val SecondaryAmber = Color(0xFFFF8F00) // برتقالي كهرماني (للأكشن المهم زي الكاميرا)
-val TertiaryTeal = Color(0xFF4DB6AC) // فيروزي هادي (للتفاصيل الجانبية)
+// ── Background ──────────────────────────────────────────────
+val Background = Color(0xFF0D1117)
+val CardSurface = Color(0xFF1A1D24)
+val CardSurfaceVariant = Color(0xFF24272E)
 
-// خلفيات نظيفة
-val BackgroundLight = Color(0xFFF5F7FA) // رمادي فاتح جداً مريح للعين
-val SurfaceWhite = Color(0xFFFFFFFF) // أبيض ناصع للكروت
+// ── Brand Accent ─────────────────────────────────────────────
+val NeonPink = Color(0xFFFF2A7A)
+val DeepPurple = Color(0xFF7B2CBF)
 
-// ألوان الحالة
-val SuccessGreen = Color(0xFF2E7D32)
-val ErrorRed = Color(0xFFC62828)
+// ── Semantic ─────────────────────────────────────────────────
+val EmeraldGreen = Color(0xFF00C853)
+val ErrorRed = Color(0xFFFF1744)
+val WarningAmber = Color(0xFFFFAB00)
 
-// ألوان النصوص
-val OnPrimaryLight = Color(0xFFFFFFFF)
-val OnSecondaryLight = Color(0xFFFFFFFF)
-val TextPrimary = Color(0xFF1A1C1E) // أسود غير صريح
-val TextSecondary = Color(0xFF42474E) // رمادي غامق
+// ── Text ─────────────────────────────────────────────────────
+val PrimaryText = Color(0xFFFFFFFF)
+val SecondaryText = Color(0xFFA0A0A0)
+val DisabledText = Color(0xFF5A5A5A)
+
+// ── Gradient Brush (theme-level token) ───────────────────────
+val AppGradient: Brush
+    get() = Brush.linearGradient(
+        colors = listOf(NeonPink, DeepPurple)
+    )
