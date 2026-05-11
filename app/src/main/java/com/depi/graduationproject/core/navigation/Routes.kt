@@ -1,10 +1,14 @@
 package com.depi.graduationproject.core.navigation
 
+import android.net.Uri
+
 sealed class Routes(val route: String) {
     data object Splash : Routes("splash")
     data object Dashboard : Routes("dashboard")
     data object Scanner : Routes("scanner")
-    data object ZoneSelection : Routes("zone_selection")
+    data object ZoneSelection : Routes("zone_selection/{plateText}") {
+        fun createRoute(plateText: String) = "zone_selection/${Uri.encode(plateText)}"
+    }
     data object Ticket : Routes("ticket/{sessionId}") {
         fun createRoute(sessionId: String) = "ticket/$sessionId"
     }

@@ -26,6 +26,9 @@ interface ParkingSessionDao {
     @Query("DELETE FROM parking_sessions")
     suspend fun deleteAll()
 
+    @Query("SELECT COUNT(*) FROM parking_sessions")
+    fun getTotalCountFlow(): Flow<Int>
+
     @Query("SELECT * FROM parking_sessions WHERE status = :activeStatus ORDER BY entryTime DESC")
     fun getActiveSessionsFlow(activeStatus: SessionStatus = SessionStatus.ACTIVE): Flow<List<ParkingSessionEntity>>
 
@@ -48,6 +51,11 @@ interface ParkingSessionDao {
         startOfDay: Long, endOfDay: Long, completedStatus: SessionStatus = SessionStatus.COMPLETED
     ): Double?
 
+    @Query("SELECT SUM(totalFee) FROM parking_sessions WHERE exitTime BETWEEN :startOfDay AND :endOfDay AND status = :completedStatus")
+    fun getTodayRevenueFlow(
+        startOfDay: Long, endOfDay: Long, completedStatus: SessionStatus = SessionStatus.COMPLETED
+    ): Flow<Double?>
+
     @Query("SELECT * FROM parking_sessions WHERE syncStatus = :pendingStatus")
     suspend fun getUnsyncedSessions(pendingStatus: SyncStatus = SyncStatus.PENDING): List<ParkingSessionEntity>
 
@@ -61,11 +69,17 @@ interface ParkingSessionDao {
         zoneId: String, startTime: Long, endTime: Long
     ): List<ParkingSessionEntity>
 
-    @Query("UPDATE parking_sessions SET syncStatus = 'SYNCED' WHERE id = :sessionId")
-    suspend fun markSynced(sessionId: String)
+    @Query("UPDATE parking_sessions SET syncStatus = :syncedStatus WHERE id IN (:sessionIds)")
+    suspend fun markSynced(
+        sessionIds: List<String>,
+        syncedStatus: SyncStatus = SyncStatus.SYNCED
+    )
 
     @Query("SELECT * FROM parking_sessions WHERE licensePlate LIKE '%' || :plate || '%' ORDER BY entryTime DESC")
     suspend fun getByLicensePlate(plate: String): List<ParkingSessionEntity>
+
+    @Query("SELECT * FROM parking_sessions WHERE status = 'ACTIVE' AND licensePlate LIKE '%' || :plate || '%' ORDER BY entryTime DESC")
+    suspend fun searchActiveByPlate(plate: String): List<ParkingSessionEntity>
 
     @Query("SELECT * FROM parking_sessions WHERE exitTime BETWEEN :startOfDay AND :endOfDay AND status = 'COMPLETED'")
     suspend fun getCompletedToday(startOfDay: Long, endOfDay: Long): List<ParkingSessionEntity>

@@ -39,3 +39,11 @@
 
 # ZXing
 -keep class com.google.zxing.** { *; }
+
+# Ktor missing classes on Android
+-dontwarn java.lang.management.**
+-dontwarn javax.management.**
+
+# TFLite GPU
+-dontwarn org.tensorflow.lite.gpu.**
+-keep class org.tensorflow.lite.gpu.** { *; }

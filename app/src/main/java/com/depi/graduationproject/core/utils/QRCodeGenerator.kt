@@ -5,10 +5,6 @@ import android.graphics.Color
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 
-/**
- * Utility class to generate QR codes.
- * Follows Phase 6 (T065).
- */
 object QRCodeGenerator {
     fun generate(content: String, size: Int = 512): Bitmap? {
         if (content.isEmpty()) return null

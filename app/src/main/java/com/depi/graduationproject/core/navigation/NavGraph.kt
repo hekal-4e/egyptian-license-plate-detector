@@ -15,12 +15,20 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.depi.graduationproject.presentation.dashboard.DashboardScreen
+import com.depi.graduationproject.presentation.history.HistoryScreen
+import com.depi.graduationproject.presentation.scanner.ScannerScreen
+import com.depi.graduationproject.presentation.scanner.ZoneSelectionScreen
+import com.depi.graduationproject.presentation.scanner.TicketScreen
+import com.depi.graduationproject.presentation.checkout.CheckoutScreen
+import com.depi.graduationproject.presentation.manualentry.ManualEntryScreen
+import com.depi.graduationproject.presentation.settings.SettingsScreen
+import com.depi.graduationproject.presentation.splash.SplashScreen
 
 @Composable
 fun NavGraph() {
     val navController = rememberNavController()
     val navBackStackEntry = navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry.value?.destination?.route
 
     Scaffold(
         modifier = Modifier.fillMaxSize()
@@ -31,47 +39,122 @@ fun NavGraph() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.Splash.route) {
-                PlaceholderScreen("Splash Screen") {
-                    navController.navigate(Routes.Dashboard.route) {
-                        popUpTo(Routes.Splash.route) { inclusive = true }
+                SplashScreen(
+                    onNavigateNext = {
+                        navController.navigate(Routes.Dashboard.route) {
+                            popUpTo(Routes.Splash.route) { inclusive = true }
+                        }
                     }
-                }
+                )
             }
 
             composable(Routes.Dashboard.route) {
-                PlaceholderScreen("Dashboard Screen")
+                DashboardScreen(
+                    onNavigateToScanner = { navController.navigate(Routes.Scanner.route) },
+                    onNavigateToManualEntry = { navController.navigate(Routes.ManualEntry.route) },
+                    onNavigateToCheckout = { navController.navigate(Routes.Checkout.route) },
+                    onNavigateToHistory = { navController.navigate(Routes.History.route) },
+                    onNavigateToSettings = { navController.navigate(Routes.Settings.route) }
+                )
             }
 
             composable(Routes.Scanner.route) {
-                PlaceholderScreen("Scanner Screen")
+                ScannerScreen(
+                    onNavigateToZoneSelection = { plateText ->
+                        navController.navigate(Routes.ZoneSelection.createRoute(plateText))
+                    },
+                    onNavigateToCheckout = {
+                        navController.navigate(Routes.Checkout.route)
+                    },
+                    onNavigateToManualEntry = {
+                        navController.navigate(Routes.ManualEntry.route)
+                    }
+                )
             }
 
-            composable(Routes.ZoneSelection.route) {
-                PlaceholderScreen("Zone Selection")
+            composable(
+                route = Routes.ZoneSelection.route,
+                arguments = listOf(navArgument("plateText") { type = NavType.StringType })
+            ) { backStackEntry ->
+                ZoneSelectionScreen(
+                    onNavigateToTicket = { sessionId ->
+                        navController.navigate(Routes.Ticket.createRoute(sessionId)) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = false }
+                        }
+                    }
+                )
             }
 
             composable(
                 route = Routes.Ticket.route,
                 arguments = listOf(navArgument("sessionId") { type = NavType.StringType })
             ) {
-                val sessionId = it.arguments?.getString("sessionId") ?: ""
-                PlaceholderScreen("Ticket Screen for: $sessionId")
+                TicketScreen(
+                    onDone = {
+                        navController.navigate(Routes.Dashboard.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = true }
+                        }
+                    }
+                )
             }
 
             composable(Routes.Checkout.route) {
-                PlaceholderScreen("Checkout Screen")
+                CheckoutScreen(
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
 
             composable(Routes.ManualEntry.route) {
-                PlaceholderScreen("Manual Entry Screen")
+                ManualEntryScreen(
+                    onConfirm = { plateText ->
+                        navController.navigate(Routes.ZoneSelection.createRoute(plateText)) {
+                            popUpTo(Routes.ManualEntry.route) { inclusive = true }
+                        }
+                    },
+                    onCancel = {
+                        navController.popBackStack()
+                    }
+                )
             }
 
             composable(Routes.History.route) {
-                PlaceholderScreen("History Screen")
+                HistoryScreen(
+                    onNavigateToHome = {
+                        navController.navigate(Routes.Dashboard.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = true }
+                        }
+                    },
+                    onNavigateToSettings = {
+                        navController.navigate(Routes.Settings.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = false }
+                        }
+                    },
+                    onNavigateToManualEntry = {
+                        navController.navigate(Routes.ManualEntry.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = false }
+                        }
+                    }
+                )
             }
 
             composable(Routes.Settings.route) {
-                PlaceholderScreen("Settings Screen")
+                SettingsScreen(
+                    onNavigateToHome = {
+                        navController.navigate(Routes.Dashboard.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = true }
+                        }
+                    },
+                    onNavigateToHistory = {
+                        navController.navigate(Routes.History.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = false }
+                        }
+                    },
+                    onNavigateToManualEntry = {
+                        navController.navigate(Routes.ManualEntry.route) {
+                            popUpTo(Routes.Dashboard.route) { inclusive = false }
+                        }
+                    }
+                )
             }
         }
     }

@@ -1,7 +1,9 @@
 package com.depi.graduationproject.core.di
 
+import com.depi.graduationproject.data.remote.supabase.SupabaseRepositoryImpl
 import com.depi.graduationproject.data.repository.ParkingRepositoryImpl
 import com.depi.graduationproject.data.repository.SettingsRepositoryImpl
+import com.depi.graduationproject.domain.repository.ICloudRepository
 import com.depi.graduationproject.domain.repository.IParkingRepository
 import com.depi.graduationproject.domain.repository.ISettingsRepository
 import dagger.Binds
@@ -25,4 +27,10 @@ abstract class RepositoryModule {
     abstract fun bindSettingsRepository(
         settingsRepositoryImpl: SettingsRepositoryImpl
     ): ISettingsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCloudRepository(
+        supabaseRepositoryImpl: SupabaseRepositoryImpl
+    ): ICloudRepository
 }

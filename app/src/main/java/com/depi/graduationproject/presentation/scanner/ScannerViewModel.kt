@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
+import com.depi.graduationproject.domain.model.ImageFrame
 import com.depi.graduationproject.domain.model.PlateAnalysisResult
 import com.depi.graduationproject.domain.usecase.checkin.ScanPlateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -11,7 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 @HiltViewModel
@@ -22,6 +24,7 @@ class ScannerViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ScannerUiState())
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
+    private val isAnalyzing = AtomicBoolean(false)
 
     init {
         // Initialize analyzer if needed off main thread (H3 fix)
@@ -33,17 +36,35 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun processImage(bitmap: Bitmap) {
-        if (_uiState.value.isProcessing || _uiState.value.showVerificationSheet) return
+        if (!isAnalyzing.compareAndSet(false, true)) return
+        if (_uiState.value.showVerificationSheet) {
+            isAnalyzing.set(false)
+            return
+        }
 
         _uiState.value = _uiState.value.copy(isProcessing = true)
 
         viewModelScope.launch {
             try {
-                val stream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
-                val byteArray = stream.toByteArray()
+                val frameBitmap = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+                    bitmap
+                } else {
+                    bitmap.copy(Bitmap.Config.ARGB_8888, false).also { bitmap.recycle() }
+                }
 
-                val result = scanPlateUseCase(byteArray)
+                val width = frameBitmap.width
+                val height = frameBitmap.height
+                val buffer = ByteBuffer.allocate(frameBitmap.byteCount)
+                frameBitmap.copyPixelsToBuffer(buffer)
+                frameBitmap.recycle()
+
+                val imageFrame = ImageFrame(
+                    bytes = buffer.array(),
+                    width = width,
+                    height = height
+                )
+
+                val result = scanPlateUseCase(imageFrame)
 
                 when (result) {
                     is ScanPlateUseCase.ScanResult.Success -> {
@@ -71,6 +92,8 @@ class ScannerViewModel @Inject constructor(
                     isProcessing = false,
                     duplicateSessionError = "Error: ${e.message}"
                 )
+            } finally {
+                isAnalyzing.set(false)
             }
         }
     }

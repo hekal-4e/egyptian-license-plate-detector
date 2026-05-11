@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
+import com.depi.graduationproject.domain.model.ImageFrame
 import com.depi.graduationproject.domain.model.PlateAnalysisResult
 import com.depi.graduationproject.repository.PlateRepository
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.nio.ByteBuffer
 
 class MainViewModel(
     private val repository: PlateRepository,
@@ -47,11 +49,23 @@ class MainViewModel(
         viewModelScope.launch {
             _isLoading.value = true
 
-            val stream = java.io.ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
-            val byteArray = stream.toByteArray()
+            val (frameBitmap, shouldRecycle) = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+                bitmap to false
+            } else {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) to true
+            }
 
-            val result = analyzer.analyze(byteArray)
+            val buffer = ByteBuffer.allocate(frameBitmap.byteCount)
+            frameBitmap.copyPixelsToBuffer(buffer)
+            if (shouldRecycle) frameBitmap.recycle()
+
+            val imageFrame = ImageFrame(
+                bytes = buffer.array(),
+                width = frameBitmap.width,
+                height = frameBitmap.height
+            )
+
+            val result = analyzer.analyze(imageFrame)
 
             _analysisResult.value = result
             _isLoading.value = false

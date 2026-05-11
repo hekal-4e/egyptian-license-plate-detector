@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +79,7 @@ fun LicensePlateTextField(
                         textStyle = textStyle,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         cursorBrush = SolidColor(Color.Black),
+                        modifier = Modifier.semantics { contentDescription = "License plate numbers" },
                         decorationBox = { innerTextField ->
                             if (numbers.isEmpty()) {
                                 Text(
@@ -112,6 +115,7 @@ fun LicensePlateTextField(
                         textStyle = textStyle,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                         cursorBrush = SolidColor(Color.Black),
+                        modifier = Modifier.semantics { contentDescription = "License plate letters" },
                         decorationBox = { innerTextField ->
                             if (letters.isEmpty()) {
                                 Text(

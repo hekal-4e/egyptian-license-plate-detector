@@ -2,12 +2,9 @@ package com.depi.graduationproject.presentation.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,8 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,37 +40,28 @@ fun PlateDisplay(
         textAlign = TextAlign.Center
     )
 
+    val formattedNumbers = "\u202A$numbers\u202C"
+    val formattedLetters = "\u202B$letters\u202C"
+    val plateText = "$formattedNumbers $formattedLetters".trim()
+    val accessibilityText = "License plate $numbers $letters".trim()
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
             .clip(containerShape)
             .background(Color.White)
+            .semantics { contentDescription = accessibilityText }
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Numbers (Left, LTR)
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Text(
-                    text = numbers,
-                    style = textStyle,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            // Letters (Right, RTL)
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                Text(
-                    text = letters,
-                    style = textStyle,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Text(
+                text = plateText,
+                style = textStyle,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

@@ -1,26 +1,29 @@
 package com.depi.graduationproject.domain.usecase.checkin
 
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
+import com.depi.graduationproject.domain.model.ImageFrame
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.domain.model.PlateAnalysisResult
 import com.depi.graduationproject.domain.repository.IParkingRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class ScanPlateUseCase @Inject constructor(
     private val parkingRepository: IParkingRepository,
     private val plateAnalyzer: IPlateAnalyzer
 ) {
-    suspend operator fun invoke(imageData: ByteArray): ScanResult {
-        val analysis = plateAnalyzer.analyze(imageData)
-        
+    suspend operator fun invoke(imageFrame: ImageFrame): ScanResult = withContext(Dispatchers.Default) {
+        val analysis = plateAnalyzer.analyze(imageFrame)
+
         if (analysis.text.isEmpty()) {
-            return ScanResult.NoPlateFound
+            return@withContext ScanResult.NoPlateFound
         }
 
         // Check for duplicate active session (FR-012)
         val existingSession = parkingRepository.getActiveSessionByPlate(analysis.text)
-        
-        return if (existingSession != null) {
+
+        if (existingSession != null) {
             ScanResult.AlreadyActive(existingSession, analysis)
         } else {
             ScanResult.Success(analysis)

@@ -27,10 +27,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import com.depi.graduationproject.core.theme.CardSurface
 import com.depi.graduationproject.core.theme.GraduationProjectTheme
 import com.depi.graduationproject.core.theme.NeonPink
 import com.depi.graduationproject.core.theme.SecondaryText
+import com.depi.graduationproject.core.utils.HapticType
+import com.depi.graduationproject.core.utils.rememberHapticFeedback
 
 enum class NavItem {
     HOME, HISTORY, ADD, SETTINGS
@@ -93,14 +99,22 @@ private fun BottomNavItem(
 ) {
     val color = if (isSelected) NeonPink else SecondaryText
     val interactionSource = remember { MutableInteractionSource() }
+    val haptic = rememberHapticFeedback()
 
     Column(
         modifier = modifier
             .clip(MaterialTheme.shapes.small)
+            .semantics {
+                contentDescription = label
+                role = Role.Button
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    haptic(HapticType.CLICK)
+                    onClick()
+                }
             )
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally

@@ -24,6 +24,7 @@ class YoloDetector(context: Context, modelPath: String) {
     private lateinit var interpreter: Interpreter
     private var inputImageWidth: Int = 640
     private var inputImageHeight: Int = 640
+    private var imageProcessor: ImageProcessor? = null
 
     init {
         try {
@@ -34,25 +35,26 @@ class YoloDetector(context: Context, modelPath: String) {
             val inputShape = interpreter.getInputTensor(0).shape()
             inputImageHeight = inputShape[1]
             inputImageWidth = inputShape[2]
+            imageProcessor = ImageProcessor.Builder()
+                .add(ResizeOp(inputImageHeight, inputImageWidth, ResizeOp.ResizeMethod.BILINEAR))
+                .add(NormalizeOp(0f, 255f))
+                .build()
             Log.d("YOLO", "Model Loaded Successfully. Input: $inputImageWidth x $inputImageHeight")
         } catch (e: Exception) {
             Log.e("YOLO", "Error loading model", e)
         }
     }
 
-    val isInitialized: Boolean get() = ::interpreter.isInitialized
+    val isInitialized: Boolean get() = ::interpreter.isInitialized && imageProcessor != null
 
     fun detect(bitmap: Bitmap): List<DetectionResult> {
         if (!isInitialized) return emptyList()
 
-        val imageProcessor = ImageProcessor.Builder()
-            .add(ResizeOp(inputImageHeight, inputImageWidth, ResizeOp.ResizeMethod.BILINEAR))
-            .add(NormalizeOp(0f, 255f))
-            .build()
+        val processor = imageProcessor ?: return emptyList()
 
         var tensorImage = TensorImage(DataType.FLOAT32)
         tensorImage.load(bitmap)
-        tensorImage = imageProcessor.process(tensorImage)
+        tensorImage = processor.process(tensorImage)
 
         val outputTensor = interpreter.getOutputTensor(0)
         val outputShape = outputTensor.shape() // [1, 5, 8400]

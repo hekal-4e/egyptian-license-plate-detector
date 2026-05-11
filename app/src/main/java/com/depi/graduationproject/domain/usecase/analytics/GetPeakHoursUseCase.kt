@@ -1,13 +1,15 @@
 package com.depi.graduationproject.domain.usecase.analytics
 
 import com.depi.graduationproject.domain.repository.IParkingRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 import javax.inject.Inject
 
 class GetPeakHoursUseCase @Inject constructor(
     private val parkingRepository: IParkingRepository
 ) {
-    suspend operator fun invoke(startTime: Long, endTime: Long): Map<Int, Int> {
+    suspend operator fun invoke(startTime: Long, endTime: Long): Map<Int, Int> = withContext(Dispatchers.Default) {
         val sessions = parkingRepository.getByDateRange(startTime, endTime)
         
         val hourDistribution = mutableMapOf<Int, Int>()
@@ -22,6 +24,6 @@ class GetPeakHoursUseCase @Inject constructor(
             hourDistribution[hour] = (hourDistribution[hour] ?: 0) + 1
         }
         
-        return hourDistribution
+        return@withContext hourDistribution
     }
 }

@@ -20,6 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -30,6 +34,8 @@ import com.depi.graduationproject.core.theme.GraduationProjectTheme
 import com.depi.graduationproject.core.theme.NeonPink
 import com.depi.graduationproject.core.theme.PrimaryText
 import com.depi.graduationproject.core.theme.SecondaryText
+import com.depi.graduationproject.core.utils.HapticType
+import com.depi.graduationproject.core.utils.rememberHapticFeedback
 
 @Composable
 fun ZoneCard(
@@ -39,12 +45,20 @@ fun ZoneCard(
     spotsLeft: Int,
     isSelected: Boolean = false,
     onClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentDescriptionOverride: String? = null
 ) {
     val isFull = spotsLeft <= 0
     val alpha = if (isFull) 0.5f else 1f
     val spotsText = if (isFull) "FULL" else "$spotsLeft SPOTS LEFT"
     val spotsColor = if (isFull) ErrorRed else EmeraldGreen
+    val haptic = rememberHapticFeedback()
+    val accessibilityLabel = if (isFull) {
+        "$zoneName full"
+    } else {
+        "$zoneName, $spotsLeft spots left"
+    }
+    val resolvedDescription = contentDescriptionOverride ?: accessibilityLabel
 
     Box(
         modifier = modifier
@@ -56,7 +70,14 @@ fun ZoneCard(
             )
             .clip(MaterialTheme.shapes.large) // 16dp
             .background(CardSurface)
-            .clickable(enabled = !isFull, onClick = onClick)
+            .semantics {
+                contentDescription = resolvedDescription
+                role = Role.Button
+            }
+            .clickable(enabled = !isFull, onClick = {
+                haptic(HapticType.CLICK)
+                onClick()
+            })
             .padding(16.dp)
     ) {
         Row(

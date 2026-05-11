@@ -1,5 +1,6 @@
 *.iml
 .gradle
+.idea/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -30,3 +31,6 @@ out/
 *.jar
 *.log
 .env*
+Thumbs.db
+*.tmp
+*.swp

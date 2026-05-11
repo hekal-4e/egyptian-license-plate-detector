@@ -8,8 +8,10 @@ interface IParkingRepository {
     // Flow-based queries for reactive UI
     fun getActiveSessionsFlow(): Flow<List<ParkingSession>>
     fun getActiveCountFlow(): Flow<Int>
+    fun getTotalSessionsCountFlow(): Flow<Int>
     fun getAvailableZonesFlow(): Flow<List<Zone>>
     fun getAllZonesFlow(): Flow<List<Zone>>
+    fun getTodayRevenueFlow(startOfDay: Long, endOfDay: Long): Flow<Double>
 
     // Suspend operations
     suspend fun getSessionById(id: String): ParkingSession?
@@ -19,5 +21,10 @@ interface IParkingRepository {
     suspend fun getByDateRange(startTime: Long, endTime: Long): List<ParkingSession>
     suspend fun getTodayRevenue(startOfDay: Long, endOfDay: Long): Double
     suspend fun searchByPlate(query: String): List<ParkingSession>
+    suspend fun searchActiveByPlate(query: String): List<ParkingSession>
     suspend fun deleteSession(session: ParkingSession)
+    
+    // Sync
+    suspend fun getUnsyncedSessions(): List<ParkingSession>
+    suspend fun markSynced(sessionIds: List<String>)
 }

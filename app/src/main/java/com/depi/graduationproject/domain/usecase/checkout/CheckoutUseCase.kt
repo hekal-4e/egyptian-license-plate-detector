@@ -3,6 +3,8 @@ package com.depi.graduationproject.domain.usecase.checkout
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.domain.repository.IParkingRepository
 import com.depi.graduationproject.domain.repository.ISettingsRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import kotlin.math.ceil
 
@@ -14,9 +16,9 @@ class CheckoutUseCase @Inject constructor(
     private val parkingRepository: IParkingRepository,
     private val settingsRepository: ISettingsRepository
 ) {
-    suspend operator fun invoke(sessionId: String): Result<CheckoutSummary> {
+    suspend operator fun invoke(sessionId: String): Result<CheckoutSummary> = withContext(Dispatchers.Default) {
         val session = parkingRepository.getSessionById(sessionId) 
-            ?: return Result.failure(IllegalArgumentException("Session not found"))
+            ?: return@withContext Result.failure(IllegalArgumentException("Session not found"))
             
         val settings = settingsRepository.getSettings()
         
@@ -34,7 +36,7 @@ class CheckoutUseCase @Inject constructor(
             durationHours = durationHours
         )
         
-        return Result.success(CheckoutSummary(
+        return@withContext Result.success(CheckoutSummary(
             session = session,
             durationHours = durationHours,
             totalFee = totalFee

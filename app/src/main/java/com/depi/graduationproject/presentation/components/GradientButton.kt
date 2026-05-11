@@ -22,7 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import com.depi.graduationproject.core.utils.HapticType
+import com.depi.graduationproject.core.utils.rememberHapticFeedback
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.depi.graduationproject.core.theme.AppGradient
@@ -39,6 +45,7 @@ fun GradientButton(
     showArrow: Boolean = true
 ) {
     val alpha = if (enabled && !isLoading) 1f else 0.4f
+    val haptic = rememberHapticFeedback()
 
     Box(
         modifier = modifier
@@ -47,7 +54,14 @@ fun GradientButton(
             .alpha(alpha)
             .clip(MaterialTheme.shapes.extraLarge) // fully rounded
             .background(AppGradient)
-            .clickable(enabled = enabled && !isLoading, onClick = onClick),
+            .semantics {
+                role = Role.Button
+                contentDescription = text
+            }
+            .clickable(enabled = enabled && !isLoading) {
+                haptic(HapticType.CLICK)
+                onClick()
+            },
         contentAlignment = Alignment.Center
     ) {
         if (isLoading) {

@@ -29,7 +29,7 @@ class SettingsRepositoryImpl @Inject constructor(
         entity.toDomain()
     }
 
-    override suspend fun updateSettings(settings: GarageSettings) = withContext(Dispatchers.IO) {
+    override suspend fun updateSettings(settings: GarageSettings) {
         settingsDao.upsert(settings.toEntity())
     }
 

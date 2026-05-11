@@ -2,7 +2,6 @@ package com.depi.graduationproject.data.repository
 
 import androidx.room.withTransaction
 import com.depi.graduationproject.data.local.GarageDatabase
-import com.depi.graduationproject.domain.model.SessionStatus
 import com.depi.graduationproject.data.local.dao.ParkingSessionDao
 import com.depi.graduationproject.data.local.dao.ZoneDao
 import com.depi.graduationproject.data.local.entity.ParkingSessionEntity
@@ -19,9 +18,9 @@ import javax.inject.Singleton
 
 @Singleton
 class ParkingRepositoryImpl @Inject constructor(
-    private val database: GarageDatabase,
     private val parkingDao: ParkingSessionDao,
-    private val zoneDao: ZoneDao
+    private val zoneDao: ZoneDao,
+    private val database: GarageDatabase
 ) : IParkingRepository {
 
     override fun getActiveSessionsFlow(): Flow<List<ParkingSession>> =
@@ -29,11 +28,16 @@ class ParkingRepositoryImpl @Inject constructor(
 
     override fun getActiveCountFlow(): Flow<Int> = parkingDao.getActiveCountFlow()
 
+    override fun getTotalSessionsCountFlow(): Flow<Int> = parkingDao.getTotalCountFlow()
+
     override fun getAvailableZonesFlow(): Flow<List<Zone>> =
         zoneDao.getAvailableZones().map { entities -> entities.map { it.toDomain() } }
 
     override fun getAllZonesFlow(): Flow<List<Zone>> =
         zoneDao.getAll().map { entities -> entities.map { it.toDomain() } }
+
+    override fun getTodayRevenueFlow(startOfDay: Long, endOfDay: Long): Flow<Double> =
+        parkingDao.getTodayRevenueFlow(startOfDay, endOfDay).map { it ?: 0.0 }
 
     override suspend fun getSessionById(id: String): ParkingSession? = withContext(Dispatchers.IO) {
         parkingDao.getById(id)?.toDomain()
@@ -58,12 +62,13 @@ class ParkingRepositoryImpl @Inject constructor(
         durationHours: Int
     ) = withContext(Dispatchers.IO) {
         database.withTransaction {
-            val session = parkingDao.getById(sessionId) ?: return@withTransaction
+            val session = parkingDao.getById(sessionId)
+                ?: throw IllegalStateException("Session not found for checkout")
             val updatedSession = session.copy(
                 exitTime = System.currentTimeMillis(),
                 totalFee = totalFee,
                 durationHours = durationHours,
-                status = SessionStatus.COMPLETED
+                status = com.depi.graduationproject.domain.model.SessionStatus.COMPLETED
             )
             parkingDao.update(updatedSession)
             zoneDao.decrementOccupied(zoneId)
@@ -85,8 +90,23 @@ class ParkingRepositoryImpl @Inject constructor(
             parkingDao.getByLicensePlate(query).map { it.toDomain() }
         }
 
+    override suspend fun searchActiveByPlate(query: String): List<ParkingSession> =
+        withContext(Dispatchers.IO) {
+            parkingDao.searchActiveByPlate(query).map { it.toDomain() }
+        }
+
     override suspend fun deleteSession(session: ParkingSession) = withContext(Dispatchers.IO) {
         parkingDao.delete(session.toEntity())
+    }
+
+    override suspend fun getUnsyncedSessions(): List<ParkingSession> = withContext(Dispatchers.IO) {
+        parkingDao.getUnsyncedSessions().map { it.toDomain() }
+    }
+
+    override suspend fun markSynced(sessionIds: List<String>) = withContext(Dispatchers.IO) {
+        if (sessionIds.isNotEmpty()) {
+            parkingDao.markSynced(sessionIds)
+        }
     }
 
     // --- Mappers ---

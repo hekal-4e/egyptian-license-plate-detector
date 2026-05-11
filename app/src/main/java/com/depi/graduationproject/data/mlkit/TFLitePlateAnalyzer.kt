@@ -6,6 +6,8 @@ import android.graphics.Matrix
 import android.graphics.RectF
 import android.util.Log
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
+import com.depi.graduationproject.domain.model.ImageFrame
+import com.depi.graduationproject.domain.model.PixelFormat
 import com.depi.graduationproject.domain.model.PlateAnalysisResult
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
@@ -13,15 +15,19 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
     private lateinit var plateDetector: YoloDetector
     private lateinit var plateReader: CrnnPlateReader
+    private val inferenceMutex = Mutex()
 
     override val ocrModelName: String = "CRNN"
 
     override fun initialize() {
+        if (isInitialized()) return
         try {
             plateDetector = YoloDetector(context, "best.tflite")
             plateReader = CrnnPlateReader(context, "plate_ocr_v3_fp16.tflite")
@@ -36,87 +42,106 @@ class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
             plateDetector.isInitialized &&
             ::plateReader.isInitialized
 
-    override suspend fun analyze(imageData: ByteArray): PlateAnalysisResult =
+    override suspend fun analyze(imageFrame: ImageFrame): PlateAnalysisResult =
         withContext(Dispatchers.Default) {
-            val originalBitmap = android.graphics.BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-            if (originalBitmap == null) {
-                return@withContext PlateAnalysisResult(
-                    isSuccess = false,
-                    text = "",
-                    imageBytes = null,
-                    message = "Invalid image data format",
-                    confidence = 0f
-                )
-            }
-
-            if (!isInitialized()) {
-                return@withContext PlateAnalysisResult(
-                    isSuccess = false,
-                    text = "",
-                    imageBytes = null,
-                    message = "Models not ready",
-                    confidence = 0f
-                )
-            }
-
-            val rotatedBitmapRef = arrayOf<Bitmap?>(null)
-            try {
-                val detection = detectPlateWithRotationFallback(originalBitmap, rotatedBitmapRef)
-                if (detection == null) {
-                    return@withContext PlateAnalysisResult(
+            inferenceMutex.withLock {
+                if (!isInitialized()) {
+                    return@withLock PlateAnalysisResult(
                         isSuccess = false,
                         text = "",
-                        imageBytes = imageData,
-                        message = "لم يتم العثور على لوحة (حاول الاقتراب)",
+                        imageBytes = null,
+                        message = "Models not ready",
                         confidence = 0f
                     )
                 }
 
-                val (frameBitmap, plateBoundingBox) = detection
-                val plateBitmap = cropWithPadding(frameBitmap, plateBoundingBox, 20)
-                val displayBitmap = createDisplayBitmap(plateBitmap)
-
-                val readResult = plateReader.read(plateBitmap)
-                val reconstructedText = readResult.text
-                val averageConfidence = readResult.confidence
-
-                // Recycle the cropped bitmap after use
-                if (plateBitmap !== frameBitmap && plateBitmap !== originalBitmap) {
-                    plateBitmap.recycle()
+                val originalBitmap = try {
+                    when (imageFrame.format) {
+                        PixelFormat.ARGB_8888 -> {
+                            val bitmap = Bitmap.createBitmap(
+                                imageFrame.width,
+                                imageFrame.height,
+                                Bitmap.Config.ARGB_8888
+                            )
+                            val buffer = ByteBuffer.wrap(imageFrame.bytes)
+                            bitmap.copyPixelsFromBuffer(buffer)
+                            bitmap
+                        }
+                    }
+                } catch (exception: Exception) {
+                    return@withLock PlateAnalysisResult(
+                        isSuccess = false,
+                        text = "",
+                        imageBytes = null,
+                        message = "Invalid image data format",
+                        confidence = 0f
+                    )
                 }
 
-                val outStream = java.io.ByteArrayOutputStream()
-                displayBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
-                val imageBytes = outStream.toByteArray()
+                val rotatedBitmapRef = arrayOf<Bitmap?>(null)
+                try {
+                    val detection = detectPlateWithRotationFallback(originalBitmap, rotatedBitmapRef)
+                    if (detection == null) {
+                        return@withLock PlateAnalysisResult(
+                            isSuccess = false,
+                            text = "",
+                            imageBytes = imageFrame.bytes,
+                            message = "لم يتم العثور على لوحة (حاول الاقتراب)",
+                            confidence = 0f
+                        )
+                    }
 
-                val isSuccess = reconstructedText.isNotBlank() && averageConfidence >= MIN_PLATE_CONFIDENCE
+                    val (frameBitmap, plateBoundingBox) = detection
+                    val plateBitmap = cropWithPadding(frameBitmap, plateBoundingBox, 20)
+                    val displayBitmap = createDisplayBitmap(plateBitmap)
 
-                return@withContext PlateAnalysisResult(
-                    isSuccess = isSuccess,
-                    text = reconstructedText,
-                    imageBytes = imageBytes,
-                    message = if (isSuccess) "Read: $reconstructedText" else "Characters unclear",
-                    confidence = averageConfidence
-                )
-            } catch (exception: Exception) {
-                Log.e(TAG, "Plate analysis failed", exception)
-                return@withContext PlateAnalysisResult(
-                    isSuccess = false,
-                    text = "",
-                    imageBytes = null,
-                    message = "Error: ${exception.message}",
-                    confidence = 0f
-                )
-            } finally {
-                // Recycle rotated bitmap if it was created
-                rotatedBitmapRef[0]?.recycle()
+                    val readResult = plateReader.read(plateBitmap)
+                    val reconstructedText = readResult.text
+                    val averageConfidence = readResult.confidence
+
+                    val outStream = java.io.ByteArrayOutputStream()
+                    displayBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outStream)
+                    val imageBytes = outStream.toByteArray()
+
+                    if (displayBitmap !== plateBitmap) {
+                        displayBitmap.recycle()
+                    }
+
+                    if (plateBitmap !== frameBitmap && plateBitmap !== originalBitmap) {
+                        plateBitmap.recycle()
+                    }
+
+                    val isSuccess = reconstructedText.isNotBlank() && averageConfidence >= MIN_PLATE_CONFIDENCE
+
+                    return@withLock PlateAnalysisResult(
+                        isSuccess = isSuccess,
+                        text = reconstructedText,
+                        imageBytes = imageBytes,
+                        message = if (isSuccess) "Read: $reconstructedText" else "Characters unclear",
+                        confidence = averageConfidence
+                    )
+                } catch (exception: Exception) {
+                    Log.e(TAG, "Plate analysis failed", exception)
+                    return@withLock PlateAnalysisResult(
+                        isSuccess = false,
+                        text = "",
+                        imageBytes = null,
+                        message = "Error: ${exception.message}",
+                        confidence = 0f
+                    )
+                } finally {
+                    rotatedBitmapRef[0]?.recycle()
+                    if (!originalBitmap.isRecycled) {
+                        originalBitmap.recycle()
+                    }
+                }
             }
         }
 
     private fun detectPlateWithRotationFallback(bitmap: Bitmap, rotatedBitmapRef: Array<Bitmap?>): Pair<Bitmap, RectF>? {
         val directDetection = plateDetector.detect(bitmap).firstOrNull()
-        if (directDetection != null) {
-            return bitmap to directDetection.boundingBox
+        if (directDetection != null || !ENABLE_ROTATION_FALLBACK) {
+            return directDetection?.let { bitmap to it.boundingBox }
         }
 
         val rotatedBitmap = rotateBitmap(bitmap, 90f)
@@ -166,6 +191,7 @@ class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
         private const val TAG = "TFLitePlateAnalyzer"
         private const val MIN_PLATE_CONFIDENCE = 0.40f
         private const val DISPLAY_WIDTH_PX = 600
+        private const val ENABLE_ROTATION_FALLBACK = true
     }
 }
 
