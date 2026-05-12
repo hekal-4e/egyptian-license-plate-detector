@@ -60,6 +60,7 @@ fun NavGraph() {
 
             composable(Routes.Scanner.route) {
                 ScannerScreen(
+                    onClose = { navController.popBackStack() },
                     onNavigateToZoneSelection = { plateText ->
                         navController.navigate(Routes.ZoneSelection.createRoute(plateText))
                     },
@@ -72,11 +73,12 @@ fun NavGraph() {
                 )
             }
 
-            composable(
+composable(
                 route = Routes.ZoneSelection.route,
                 arguments = listOf(navArgument("plateText") { type = NavType.StringType })
-            ) { backStackEntry ->
+            ) {
                 ZoneSelectionScreen(
+                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToTicket = { sessionId ->
                         navController.navigate(Routes.Ticket.createRoute(sessionId)) {
                             popUpTo(Routes.Dashboard.route) { inclusive = false }

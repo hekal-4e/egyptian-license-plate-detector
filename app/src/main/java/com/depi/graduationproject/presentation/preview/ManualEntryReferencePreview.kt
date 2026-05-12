@@ -1,4 +1,4 @@
-package com.depi.graduationproject.presentation.manualentry
+package com.depi.graduationproject.presentation.preview
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -6,27 +6,36 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.depi.graduationproject.core.theme.*
-import com.depi.graduationproject.presentation.components.*
+import com.depi.graduationproject.core.theme.AppBackground
+import com.depi.graduationproject.core.theme.DeepPurple
+import com.depi.graduationproject.core.theme.Hairline
+import com.depi.graduationproject.core.theme.InputBlack
+import com.depi.graduationproject.core.theme.LprDimens
+import com.depi.graduationproject.core.theme.MutedText
+import com.depi.graduationproject.core.theme.NeonPink
+import com.depi.graduationproject.core.theme.PanelSurface
+import com.depi.graduationproject.core.theme.PrimaryHorizontalGradient
+import com.depi.graduationproject.core.theme.PrimaryText
+import com.depi.graduationproject.core.theme.SecondaryText
+import com.depi.graduationproject.core.theme.TinyCaps
+import com.depi.graduationproject.presentation.components.BackHeader
+import com.depi.graduationproject.presentation.components.GradientButton
+import com.depi.graduationproject.presentation.components.SecondaryButton
+import androidx.compose.ui.tooling.preview.Preview
 
+@Preview(widthDp = 360, heightDp = 800, showBackground = true, backgroundColor = 0xFF08090D)
 @Composable
-fun ManualEntryScreen(
-    viewModel: ManualEntryViewModel = hiltViewModel(),
-    onConfirm: (String) -> Unit,
-    onCancel: () -> Unit
-) {
-    val numbers by viewModel.numbers.collectAsState()
-    val letters by viewModel.letters.collectAsState()
-    val isValid by viewModel.isValid.collectAsState()
-
+fun ManualEntryReferencePreview() {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -35,8 +44,7 @@ fun ManualEntryScreen(
     ) {
         BackHeader(
             title = "Manual Entry",
-            onBackClick = onCancel,
-            modifier = Modifier.fillMaxWidth()
+            onBackClick = {}
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -99,7 +107,7 @@ fun ManualEntryScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = numbers.ifEmpty { "1234" },
+                            text = "1234",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryText
@@ -129,7 +137,7 @@ fun ManualEntryScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = letters.ifEmpty { "أ ب ج" },
+                            text = "أ ب ج",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryText
@@ -143,8 +151,7 @@ fun ManualEntryScreen(
 
         GradientButton(
             text = "Confirm Check-In",
-            onClick = { onConfirm(viewModel.getCombinedPlate()) },
-            enabled = isValid,
+            onClick = {},
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -152,7 +159,7 @@ fun ManualEntryScreen(
 
         SecondaryButton(
             text = "Cancel",
-            onClick = onCancel,
+            onClick = {},
             modifier = Modifier.fillMaxWidth()
         )
 

@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.LocationOn
@@ -15,11 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.depi.graduationproject.core.theme.CardSurface
-import com.depi.graduationproject.core.theme.GraduationProjectTheme
+import com.depi.graduationproject.core.theme.*
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.presentation.components.*
 import java.text.SimpleDateFormat
@@ -57,7 +60,8 @@ fun CheckoutScreen(
         onClearSelection = viewModel::clearSelection,
         onDismissError = viewModel::dismissError,
         onDone = onNavigateBack,
-        onScanQrClick = { showQrScanner = true }
+        onScanQrClick = { showQrScanner = true },
+        onBackClick = onNavigateBack
     )
 
     if (showQrScanner) {
@@ -80,18 +84,20 @@ fun CheckoutScreenContent(
     onClearSelection: () -> Unit,
     onDismissError: () -> Unit,
     onDone: () -> Unit,
-    onScanQrClick: () -> Unit
+    onScanQrClick: () -> Unit,
+    onBackClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .background(AppBackground)
+            .padding(LprDimens.ScreenPadding)
+            .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            text = "Checkout",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 24.dp)
+        BackHeader(
+            title = "Checkout",
+            onBackClick = onBackClick,
+            modifier = Modifier.fillMaxWidth()
         )
 
         val summary = uiState.checkoutSummary
@@ -104,7 +110,8 @@ fun CheckoutScreenContent(
         }
 
         if (uiState.selectedSession == null) {
-            // Search State
+            Spacer(modifier = Modifier.height(8.dp))
+
             SecondaryButton(
                 text = "SCAN QR TICKET",
                 onClick = onScanQrClick,
@@ -113,11 +120,15 @@ fun CheckoutScreenContent(
                     .padding(bottom = 16.dp)
                     .semantics { contentDescription = "Scan QR ticket to select session" }
             )
+
             AppSearchBar(
                 query = uiState.searchQuery,
                 onQueryChange = onSearchQueryChanged,
-                modifier = Modifier.padding(bottom = 24.dp)
+                placeholder = "Search License Plate / Lost Ticket",
+                modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (uiState.isLoading) {
                 Column(
@@ -131,30 +142,109 @@ fun CheckoutScreenContent(
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(uiState.searchResults) { session ->
-                        ZoneCard(
-                            zoneLetter = session.zoneId.take(1).uppercase(),
+                        val zoneLetter = session.zoneId.take(1).uppercase()
+                        val (numbers, letters) = PlateUtils.splitPlateText(session.licensePlate)
+                        ZoneOptionCard(
                             zoneName = "Zone ${session.zoneId}",
-                            subtitle = session.licensePlate,
-                            spotsLeft = 1, // Doesn't matter here
-                            contentDescriptionOverride = "Session ${session.licensePlate} in Zone ${session.zoneId}",
-                            onClick = { onSessionSelected(session) }
+                            zoneDescription = session.licensePlate,
+                            spotsLeft = 1,
+                            isSelected = false,
+                            onClick = { onSessionSelected(session) },
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
             }
         } else {
-            // Billing Summary State
-            SecondaryButton(
-                text = "BACK TO SEARCH",
-                onClick = onClearSelection,
-                modifier = Modifier.padding(bottom = 24.dp)
+            val session = uiState.selectedSession
+            val (numbers, letters) = PlateUtils.splitPlateText(session.licensePlate)
+
+            val exitTimeNow = System.currentTimeMillis()
+            val durationHours = calculateHours(session.entryTime, exitTimeNow)
+            val hourlyRate = session.hourlyRateApplied
+            val totalFee = durationHours * hourlyRate
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ScanResultHeaderCard(
+                plateNumbers = numbers,
+                plateLetters = letters,
+                modifier = Modifier.fillMaxWidth()
             )
-            
-            BillingSummaryView(
-                session = uiState.selectedSession,
-                isProcessing = uiState.isProcessingPayment,
-                onProcessPayment = onProcessPayment
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            CarLocationCard(
+                zoneName = "Zone ${session.zoneId}",
+                spotId = session.spotId ?: "A-12",
+                rowNumber = 2,
+                modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(LprDimens.CardRadius))
+                    .background(PanelSurface)
+                    .padding(16.dp)
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Billing Summary",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = PrimaryText
+                    )
+
+                    BillingRow(
+                        icon = Icons.Default.AccessTime,
+                        label = "Entry Time",
+                        value = formatTime(session.entryTime),
+                        dateText = formatDate(session.entryTime)
+                    )
+                    BillingRow(
+                        icon = Icons.Default.AccessTime,
+                        label = "Exit Time",
+                        value = formatTime(exitTimeNow),
+                        dateText = formatDate(exitTimeNow)
+                    )
+                    BillingRow(
+                        icon = Icons.Default.AccessTime,
+                        label = "Duration",
+                        value = String.format(Locale.US, "%.1f hours", durationHours),
+                        dateText = null
+                    )
+                    BillingRow(
+                        icon = Icons.Default.Payment,
+                        label = "Hourly Rate",
+                        value = String.format(Locale.US, "%.2f EGP", hourlyRate),
+                        dateText = null
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            GradientFeeText(
+                fee = String.format(Locale.US, "%.2f EGP", totalFee),
+                label = "TOTAL FEE",
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            GradientButton(
+                text = "PAY & OPEN GATE",
+                onClick = onProcessPayment,
+                isLoading = uiState.isProcessingPayment,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
 
         if (uiState.error != null) {
@@ -172,59 +262,17 @@ fun CheckoutScreenContent(
     }
 }
 
-@Composable
-fun BillingSummaryView(
-    session: ParkingSession,
-    isProcessing: Boolean,
-    onProcessPayment: () -> Unit
-) {
-    val format = SimpleDateFormat("HH:mm", Locale.getDefault())
-    val entryTimeStr = format.format(Date(session.entryTime))
+private fun formatTime(timestamp: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+}
 
-    Column(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        val plateParts = PlateUtils.splitPlateText(session.licensePlate)
-        PlateDisplay(
-            numbers = plateParts.first,
-            letters = plateParts.second,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+private fun formatDate(timestamp: Long): String {
+    return SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(timestamp))
+}
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(CardSurface, MaterialTheme.shapes.large)
-                .padding(16.dp)
-        ) {
-            Column {
-                BillingRow(
-                    icon = Icons.Default.LocationOn,
-                    label = "Parking Zone",
-                    value = "Zone ${session.zoneId}"
-                )
-                BillingRow(
-                    icon = Icons.Default.AccessTime,
-                    label = "Entry Time",
-                    value = entryTimeStr
-                )
-                BillingRow(
-                    icon = Icons.Default.Payment,
-                    label = "Status",
-                    value = "Pending Payment"
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        GradientButton(
-            text = "PAY & OPEN GATE",
-            onClick = onProcessPayment,
-            isLoading = isProcessing,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Confirm payment and open gate" }
-        )
-    }
+private fun calculateHours(start: Long, end: Long): Double {
+    val diffMs = end - start
+    return (diffMs / (1000.0 * 60.0 * 60.0)).coerceAtLeast(0.5)
 }
 
 @Composable
@@ -240,14 +288,14 @@ fun PaymentSuccessView(
         Text(
             text = "Payment Successful!",
             style = MaterialTheme.typography.headlineMedium,
-            color = com.depi.graduationproject.core.theme.EmeraldGreen,
+            color = EmeraldGreen,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
         Text(
             text = "Total Fee: EGP ${summary.totalFee}",
             style = MaterialTheme.typography.headlineLarge,
-            color = Color.White,
+            color = PrimaryText,
             modifier = Modifier.padding(bottom = 32.dp)
         )
 
@@ -259,7 +307,6 @@ fun PaymentSuccessView(
         )
     }
 }
-
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -284,13 +331,13 @@ private fun QrScannerBottomSheet(
             Text(
                 text = "Scan Ticket QR",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
+                color = PrimaryText
             )
 
             CameraPermissionWrapper(
                 onPermissionDenied = { requestPermission ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Camera permission is required to scan QR codes.")
+                        Text("Camera permission is required to scan QR codes.", color = PrimaryText)
                         Spacer(modifier = Modifier.height(12.dp))
                         SecondaryButton(
                             text = "GRANT PERMISSION",
@@ -328,7 +375,7 @@ private fun QrScannerBottomSheet(
             Text(
                 text = "Align the QR code inside the frame.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground
+                color = PrimaryText
             )
         }
     }
@@ -352,22 +399,5 @@ private fun decodeQrFromBitmap(bitmap: android.graphics.Bitmap): String? {
         null
     } finally {
         reader.reset()
-    }
-}
-
-@Preview(showBackground = true, backgroundColor = 0xFF0D1117)
-@Composable
-private fun CheckoutScreenPreview() {
-    GraduationProjectTheme {
-        CheckoutScreenContent(
-            uiState = CheckoutUiState(searchQuery = "123"),
-            onSearchQueryChanged = {},
-            onSessionSelected = {},
-            onProcessPayment = {},
-            onClearSelection = {},
-            onDismissError = {},
-            onDone = {},
-            onScanQrClick = {}
-        )
     }
 }
