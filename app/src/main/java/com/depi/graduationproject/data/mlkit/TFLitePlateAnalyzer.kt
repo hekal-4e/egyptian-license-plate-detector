@@ -313,6 +313,13 @@ internal class CrnnPlateReader(
         val digits = raw.filter { it in '\u0660'..'\u0669' }
 
         val isValid = letters.length in 2..3 && digits.length in 3..4
+        if (isValid) {
+            val lastLetterIdx = raw.indexOfLast { validPlateLetters.contains(it) }
+            val firstDigitIdx = raw.indexOfFirst { it in '\u0660'..'\u0669' }
+            if (firstDigitIdx != -1 && lastLetterIdx > firstDigitIdx) {
+                Log.w("CrnnPlateReader", "Suspicious order: letters/digits interleaved in '$raw'")
+            }
+        }
 
         val orderedText = buildString {
             for (char in raw) {
