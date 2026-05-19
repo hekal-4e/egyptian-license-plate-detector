@@ -2,6 +2,7 @@ package com.depi.graduationproject.presentation.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -179,6 +180,7 @@ fun RecentParkedCard(
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(PanelSurfaceAlt)
+                    .clickable(onClick = onDetailsClick)
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -195,6 +197,7 @@ fun RecentParkedCard(
                     .background(
                         Brush.horizontalGradient(listOf(NeonPink, com.depi.graduationproject.core.theme.DeepPurple))
                     )
+                    .clickable(onClick = onCheckOutClick)
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {

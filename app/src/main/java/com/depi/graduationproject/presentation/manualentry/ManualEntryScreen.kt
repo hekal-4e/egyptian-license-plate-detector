@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material3.*
@@ -11,8 +13,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.depi.graduationproject.core.theme.*
 import com.depi.graduationproject.presentation.components.*
@@ -98,11 +105,35 @@ fun ManualEntryScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = numbers.ifEmpty { "1234" },
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = PrimaryText
+                        BasicTextField(
+                            value = numbers,
+                            onValueChange = viewModel::onNumbersChange,
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryText,
+                                textAlign = TextAlign.Center
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            cursorBrush = SolidColor(NeonPink),
+                            modifier = Modifier.fillMaxWidth(),
+                            decorationBox = { innerTextField ->
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (numbers.isEmpty()) {
+                                        Text(
+                                            text = "1234",
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MutedText.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
                         )
                     }
                 }
@@ -128,11 +159,34 @@ fun ManualEntryScreen(
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = letters.ifEmpty { "أ ب ج" },
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = PrimaryText
+                        BasicTextField(
+                            value = letters,
+                            onValueChange = viewModel::onLettersChange,
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryText,
+                                textAlign = TextAlign.Center
+                            ),
+                            cursorBrush = SolidColor(NeonPink),
+                            modifier = Modifier.fillMaxWidth(),
+                            decorationBox = { innerTextField ->
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (letters.isEmpty()) {
+                                        Text(
+                                            text = "أ ب ج",
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MutedText.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
                         )
                     }
                 }

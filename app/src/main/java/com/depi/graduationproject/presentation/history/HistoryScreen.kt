@@ -1,6 +1,7 @@
 package com.depi.graduationproject.presentation.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +35,7 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = hiltViewModel(),
     onNavigateToHome: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToCheckout: (String) -> Unit,
     onNavigateToManualEntry: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -58,6 +60,7 @@ fun HistoryScreen(
             onFilterSelected = { start, end, label ->
                 viewModel.loadData(start, end, label)
             },
+            onNavigateToCheckout = onNavigateToCheckout,
             modifier = Modifier.padding(innerPadding)
         )
     }
@@ -67,6 +70,7 @@ fun HistoryScreen(
 fun HistoryContent(
     uiState: HistoryUiState,
     onFilterSelected: (Long, Long, String) -> Unit,
+    onNavigateToCheckout: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = rememberHapticFeedback()
@@ -152,7 +156,14 @@ fun HistoryContent(
             }
         } else {
             items(uiState.sessions, key = { it.session.id }) { item ->
-                HistoryTransactionRow(item = item)
+                HistoryTransactionRow(
+                    item = item,
+                    onClick = {
+                        if (item.session.status == SessionStatus.ACTIVE) {
+                            onNavigateToCheckout(item.session.id)
+                        }
+                    }
+                )
             }
         }
 
@@ -163,7 +174,10 @@ fun HistoryContent(
 }
 
 @Composable
-private fun HistoryTransactionRow(item: HistorySessionItem) {
+private fun HistoryTransactionRow(
+    item: HistorySessionItem,
+    onClick: () -> Unit = {}
+) {
     val session = item.session
     val dateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
     val timeStr = dateFormat.format(Date(session.entryTime))
@@ -175,6 +189,7 @@ private fun HistoryTransactionRow(item: HistorySessionItem) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(LprDimens.CardRadius))
             .background(PanelSurface)
+            .clickable(onClick = onClick)
             .padding(12.dp)
             .semantics {
                 contentDescription = "Transaction for Zone ${session.zoneId}, plate $numbers $letters"

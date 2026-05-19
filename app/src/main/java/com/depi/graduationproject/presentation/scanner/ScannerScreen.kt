@@ -1,5 +1,6 @@
 package com.depi.graduationproject.presentation.scanner
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +23,14 @@ fun ScannerScreen(
     onNavigateToManualEntry: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var latestFrame by remember { mutableStateOf<Bitmap?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            latestFrame?.recycle()
+            latestFrame = null
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         CameraPermissionWrapper(
@@ -41,8 +50,12 @@ fun ScannerScreen(
         ) {
             CameraPreview(
                 onImageCaptured = { bitmap ->
+                    latestFrame?.recycle()
+                    latestFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                     if (!uiState.isProcessing) {
                         viewModel.processImage(bitmap)
+                    } else {
+                        bitmap.recycle()
                     }
                 },
                 isFlashlightOn = uiState.isFlashlightOn,
@@ -55,14 +68,26 @@ fun ScannerScreen(
             isProcessing = uiState.isProcessing,
             onClose = onClose,
             onFlashlightToggle = { viewModel.toggleFlashlight() },
-            onCapture = { },
+            onCapture = {
+                if (!uiState.isProcessing && !uiState.showVerificationSheet) {
+                    latestFrame?.copy(Bitmap.Config.ARGB_8888, false)?.let(viewModel::processImage)
+                }
+            },
             onManualEntry = onNavigateToManualEntry,
             modifier = Modifier.fillMaxSize()
         )
     }
 
-    if (uiState.showVerificationSheet && uiState.currentAnalysis != null) {
-        val (detectedNumbers, detectedLetters) = PlateUtils.splitPlateText(uiState.currentAnalysis!!.text)
+    val currentAnalysis = uiState.currentAnalysis
+    val analysisText = currentAnalysis?.text.orEmpty()
+    val (detectedNumbers, detectedLetters) = PlateUtils.splitPlateText(analysisText)
+
+    if (
+        uiState.showVerificationSheet &&
+        currentAnalysis != null &&
+        analysisText.isNotBlank() &&
+        (detectedNumbers.isNotBlank() || detectedLetters.isNotBlank() || uiState.correctedPlateNumbers.isNotBlank() || uiState.correctedPlateLetters.isNotBlank())
+    ) {
         val numbers = uiState.correctedPlateNumbers.ifEmpty { detectedNumbers }
         val letters = uiState.correctedPlateLetters.ifEmpty { detectedLetters }
         val bottomSheetState = rememberModalBottomSheetState()

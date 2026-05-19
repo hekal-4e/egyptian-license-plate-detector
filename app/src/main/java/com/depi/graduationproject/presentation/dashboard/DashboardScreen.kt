@@ -1,10 +1,9 @@
 package com.depi.graduationproject.presentation.dashboard
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -25,13 +24,17 @@ import com.depi.graduationproject.presentation.components.RecentParkedCard
 import com.depi.graduationproject.presentation.components.ScannerFab
 import com.depi.graduationproject.presentation.components.SegmentedEntryExitToggle
 import com.depi.graduationproject.presentation.components.EntryExitMode
+import com.depi.graduationproject.core.utils.PlateUtils
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
     onNavigateToScanner: () -> Unit,
     onNavigateToManualEntry: () -> Unit,
-    onNavigateToCheckout: () -> Unit,
+    onNavigateToCheckout: (String?) -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -76,111 +79,123 @@ fun DashboardScreen(
 fun DashboardContent(
     uiState: DashboardUiState,
     onToggleMode: (Boolean) -> Unit,
-    onCheckoutClick: () -> Unit,
+    onCheckoutClick: (String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+        contentPadding = PaddingValues(vertical = 24.dp)
     ) {
-        DashboardHeader(
-            userName = "Mahmoud",
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        SegmentedEntryExitToggle(
-            selectedMode = if (uiState.isEntryMode) EntryExitMode.Entry else EntryExitMode.Exit,
-            onModeSelected = { mode ->
-                onToggleMode(mode == EntryExitMode.Entry)
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            DashboardMetricCard(
-                label = "ACTIVE",
-                value = "${uiState.activeSpots} /${uiState.totalCapacity}",
-                subtitle = "Spots Filled",
-                subtitleColor = EmeraldGreen,
-                modifier = Modifier.weight(1f)
-            )
-
-            DashboardMetricCard(
-                label = "REVENUE",
-                value = uiState.todaysRevenue.toInt().toString(),
-                subtitle = "EGP Today",
-                subtitleColor = SecondaryText,
-                modifier = Modifier.weight(1f)
+        item {
+            DashboardHeader(
+                userName = "Mahmoud",
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        item {
+            SegmentedEntryExitToggle(
+                selectedMode = if (uiState.isEntryMode) EntryExitMode.Entry else EntryExitMode.Exit,
+                onModeSelected = { mode ->
+                    onToggleMode(mode == EntryExitMode.Entry)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DashboardMetricCard(
+                    label = "ACTIVE",
+                    value = "${uiState.activeSpots} /${uiState.totalCapacity}",
+                    subtitle = "Spots Filled",
+                    subtitleColor = EmeraldGreen,
+                    modifier = Modifier.weight(1f)
+                )
+
+                DashboardMetricCard(
+                    label = "REVENUE",
+                    value = uiState.todaysRevenue.toInt().toString(),
+                    subtitle = "EGP Today",
+                    subtitleColor = SecondaryText,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
 
         if (uiState.isEntryMode) {
-            Text(
-                text = "Recently Parked",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            item {
+                Text(
+                    text = "Recently Parked",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
 
             if (uiState.recentSessions.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().height(100.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No active sessions right now.", color = SecondaryText)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No active sessions right now.", color = SecondaryText)
+                    }
                 }
             } else {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(uiState.recentSessions) { session ->
-                        val (numbers, letters) = session.licensePlate.split(" ", limit = 2).let {
-                            if (it.size >= 2) Pair(it[0], it[1]) else Pair(it[0], "")
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(uiState.recentSessions, key = { it.id }) { session ->
+                            val (numbers, letters) = PlateUtils.splitPlateText(session.licensePlate)
+                            val zoneLetter = session.zoneId.lastOrNull()?.uppercase()?.toString() ?: "A"
+                            RecentParkedCard(
+                                zoneName = "Zone ${session.zoneId.uppercase()}",
+                                zoneLetter = zoneLetter,
+                                time = timeFormat.format(Date(session.entryTime)),
+                                numbers = numbers,
+                                letters = letters,
+                                onDetailsClick = { onCheckoutClick(session.id) },
+                                onCheckOutClick = { onCheckoutClick(session.id) }
+                            )
                         }
-                        val zoneLetter = session.zoneId.lastOrNull()?.uppercase()?.toString() ?: "A"
-                        RecentParkedCard(
-                            zoneName = "Zone ${session.zoneId.uppercase()}",
-                            zoneLetter = zoneLetter,
-                            time = "10:30 AM",
-                            numbers = numbers,
-                            letters = letters,
-                            onDetailsClick = {},
-                            onCheckOutClick = {}
-                        )
                     }
                 }
             }
         } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Scan QR Ticket or manually search license plate to process checkout.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = SecondaryText,
-                    modifier = Modifier.padding(bottom = 24.dp)
-                )
-                GradientButton(
-                    text = "PROCESS CHECKOUT",
-                    onClick = onCheckoutClick,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Scan QR Ticket or manually search license plate to process checkout.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = SecondaryText,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+                    GradientButton(
+                        text = "PROCESS CHECKOUT",
+                        onClick = { onCheckoutClick(null) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(100.dp))
+        item {
+            Spacer(modifier = Modifier.height(100.dp))
+        }
     }
 }

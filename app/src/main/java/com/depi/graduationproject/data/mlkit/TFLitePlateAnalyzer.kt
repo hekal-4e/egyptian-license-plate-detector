@@ -2,7 +2,11 @@ package com.depi.graduationproject.data.mlkit
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Log
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
@@ -17,6 +21,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.max
+import kotlin.math.min
 
 class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
@@ -201,18 +207,30 @@ internal class CrnnPlateReader(
     modelPath: String = "plate_ocr_v3_fp16.tflite"
 ) {
     private val interpreter: Interpreter
-    private val inputWidth = 200
-    private val inputHeight = 64
+    private val inputWidth: Int
+    private val inputHeight: Int
+    private val inputChannels: Int
+    private val classCount: Int
+
+    private enum class ColorOrder { RGB, BGR }
+    private enum class Normalization { ZERO_TO_ONE, NEG_ONE_TO_ONE }
+    private enum class ResizeMode { STRETCH, LETTERBOX }
+
+    private data class InputConfig(
+        val colorOrder: ColorOrder,
+        val normalization: Normalization,
+        val resizeMode: ResizeMode
+    )
 
     // Must match FULL_CHARSET from training
     private val charset = listOf(
         "أ", "ب", "ج", "د", "ر", "س", "ص", "ط", "ع", "ف",
-        "ق", "ل", "م", "ن", "هـ", "و", "ي",
+        "ق", "ك", "ل", "م", "ن", "ه", "و", "ي",
         "٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"
     )
     private val blankIndex = 0
 
-    private val validPlateLetters = "أبجدرسصطعفقلمنهـوي"
+    private val validPlateLetters = "أبجدرسصطعفقكلمنهوي"
 
     data class PlateReadResult(
         val text: String,
@@ -223,19 +241,35 @@ internal class CrnnPlateReader(
         val modelFile = FileUtil.loadMappedFile(context, modelPath)
         val options = Interpreter.Options().apply { setNumThreads(4) }
         interpreter = Interpreter(modelFile, options)
+
+        val inputShape = interpreter.getInputTensor(0).shape()
+        require(inputShape.size == 4) { "CRNN input must be rank-4, got ${inputShape.contentToString()}" }
+        inputHeight = inputShape[1]
+        inputWidth = inputShape[2]
+        inputChannels = inputShape[3]
+        require(inputChannels == 3) { "CRNN input must have 3 channels, got ${inputShape.contentToString()}" }
+        classCount = charset.size + 1
+
+        Log.i(
+            TAG,
+            "CRNN loaded. input=${inputShape.contentToString()} " +
+                "output=${interpreter.getOutputTensor(0).shape().contentToString()} " +
+                "inputType=${interpreter.getInputTensor(0).dataType()} " +
+                "outputType=${interpreter.getOutputTensor(0).dataType()} " +
+                "classes=$classCount"
+        )
     }
 
     fun read(plateBitmap: Bitmap): PlateReadResult {
-        val inputBuffer = preprocessBitmap(plateBitmap)
-        val outputShape = interpreter.getOutputTensor(0).shape()
-        val T = outputShape[1]
-        val C = outputShape[2]
-        val outputBuffer = Array(1) { Array(T) { FloatArray(C) } }
-        interpreter.run(inputBuffer, outputBuffer)
-
-        val logits = outputBuffer[0]
+        val inputBuffer = preprocessBitmap(plateBitmap, DEFAULT_INPUT_CONFIG)
+        val logits = runModel(inputBuffer)
         val decoded = greedyCtcDecode(logits)
         val confidence = computeConfidence(logits)
+
+        if (DEBUG_OCR) {
+            Log.d(TAG, "CTC raw='$decoded' confidence=$confidence path=${summarizeBestPath(logits)}")
+            runPreprocessProbe(plateBitmap)
+        }
 
         val (validatedText, isValid) = validateEgyptianPlate(decoded)
         val finalConfidence = if (isValid) confidence else confidence * 0.8f
@@ -250,8 +284,39 @@ internal class CrnnPlateReader(
         interpreter.close()
     }
 
-    private fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
-        val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
+    private fun runModel(inputBuffer: ByteBuffer): Array<FloatArray> {
+        val outputShape = interpreter.getOutputTensor(0).shape()
+        require(outputShape.size == 3 && outputShape[0] == 1) {
+            "CRNN output must be [1,T,C] or [1,C,T], got ${outputShape.contentToString()}"
+        }
+
+        val dim1 = outputShape[1]
+        val dim2 = outputShape[2]
+        val rawOutput = Array(1) { Array(dim1) { FloatArray(dim2) } }
+        interpreter.run(inputBuffer, rawOutput)
+        return toTimeMajorLogits(rawOutput[0], outputShape)
+    }
+
+    private fun toTimeMajorLogits(raw: Array<FloatArray>, shape: IntArray): Array<FloatArray> {
+        val dim1 = shape[1]
+        val dim2 = shape[2]
+        return when {
+            dim2 == classCount -> raw
+            dim1 == classCount -> Array(dim2) { timestep ->
+                FloatArray(dim1) { classIndex -> raw[classIndex][timestep] }
+            }
+            else -> error(
+                "Cannot infer CTC output layout. Expected one dimension to equal classCount=$classCount, " +
+                    "got ${shape.contentToString()}"
+            )
+        }
+    }
+
+    private fun preprocessBitmap(bitmap: Bitmap, config: InputConfig): ByteBuffer {
+        val resized = when (config.resizeMode) {
+            ResizeMode.STRETCH -> Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
+            ResizeMode.LETTERBOX -> letterboxBitmap(bitmap, inputWidth, inputHeight)
+        }
         val pixelCount = inputWidth * inputHeight
         val pixels = IntArray(pixelCount)
         resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
@@ -261,12 +326,68 @@ internal class CrnnPlateReader(
             .order(ByteOrder.nativeOrder())
 
         for (pixel in pixels) {
-            buffer.putFloat((pixel shr 16 and 0xFF) / 255f)
-            buffer.putFloat((pixel shr 8 and 0xFF) / 255f)
-            buffer.putFloat((pixel and 0xFF) / 255f)
+            val r = pixel shr 16 and 0xFF
+            val g = pixel shr 8 and 0xFF
+            val b = pixel and 0xFF
+
+            val first = if (config.colorOrder == ColorOrder.RGB) r else b
+            val third = if (config.colorOrder == ColorOrder.RGB) b else r
+            buffer.putFloat(normalize(first, config.normalization))
+            buffer.putFloat(normalize(g, config.normalization))
+            buffer.putFloat(normalize(third, config.normalization))
         }
         buffer.rewind()
         return buffer
+    }
+
+    private fun normalize(channel: Int, normalization: Normalization): Float {
+        val zeroToOne = channel / 255f
+        return when (normalization) {
+            Normalization.ZERO_TO_ONE -> zeroToOne
+            Normalization.NEG_ONE_TO_ONE -> zeroToOne * 2f - 1f
+        }
+    }
+
+    private fun letterboxBitmap(bitmap: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
+        val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        canvas.drawColor(Color.WHITE)
+
+        val scale = min(
+            targetWidth.toFloat() / bitmap.width.toFloat(),
+            targetHeight.toFloat() / bitmap.height.toFloat()
+        )
+        val scaledWidth = max(1, (bitmap.width * scale).toInt())
+        val scaledHeight = max(1, (bitmap.height * scale).toInt())
+        val left = (targetWidth - scaledWidth) / 2
+        val top = (targetHeight - scaledHeight) / 2
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(
+            bitmap,
+            Rect(0, 0, bitmap.width, bitmap.height),
+            Rect(left, top, left + scaledWidth, top + scaledHeight),
+            paint
+        )
+        return result
+    }
+
+    private fun runPreprocessProbe(bitmap: Bitmap) {
+        val configs = listOf(
+            DEFAULT_INPUT_CONFIG,
+            InputConfig(ColorOrder.BGR, Normalization.ZERO_TO_ONE, ResizeMode.STRETCH),
+            InputConfig(ColorOrder.RGB, Normalization.NEG_ONE_TO_ONE, ResizeMode.STRETCH),
+            InputConfig(ColorOrder.RGB, Normalization.ZERO_TO_ONE, ResizeMode.LETTERBOX)
+        )
+
+        configs.forEach { config ->
+            val logits = runModel(preprocessBitmap(bitmap, config))
+            Log.d(
+                TAG,
+                "Probe $config -> '${greedyCtcDecode(logits)}' " +
+                    "confidence=${computeConfidence(logits)} path=${summarizeBestPath(logits)}"
+            )
+        }
     }
 
     private fun greedyCtcDecode(logits: Array<FloatArray>): String {
@@ -308,6 +429,17 @@ internal class CrnnPlateReader(
         return if (count > 0) sumConf / count else 0f
     }
 
+    private fun summarizeBestPath(logits: Array<FloatArray>): String {
+        val compact = mutableListOf<Int>()
+        var prev = -1
+        logits.forEach { timestep ->
+            val maxIndex = timestep.indices.maxByOrNull { timestep[it] } ?: return@forEach
+            if (maxIndex != prev) compact.add(maxIndex)
+            prev = maxIndex
+        }
+        return compact.take(80).joinToString(",")
+    }
+
     private fun validateEgyptianPlate(raw: String): Pair<String, Boolean> {
         val letters = raw.filter { validPlateLetters.contains(it) }
         val digits = raw.filter { it in '\u0660'..'\u0669' }
@@ -334,5 +466,15 @@ internal class CrnnPlateReader(
         } else {
             orderedText to false
         }
+    }
+
+    private companion object {
+        private const val TAG = "CrnnPlateReader"
+        private const val DEBUG_OCR = false
+        private val DEFAULT_INPUT_CONFIG = InputConfig(
+            colorOrder = ColorOrder.RGB,
+            normalization = Normalization.ZERO_TO_ONE,
+            resizeMode = ResizeMode.STRETCH
+        )
     }
 }

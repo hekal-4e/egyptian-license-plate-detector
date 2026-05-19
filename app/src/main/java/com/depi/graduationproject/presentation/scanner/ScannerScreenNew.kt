@@ -57,7 +57,7 @@ fun ScannerScreenContent(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF1A1A1A))
+            .background(Color.Transparent)
     ) {
         Column(
             modifier = Modifier

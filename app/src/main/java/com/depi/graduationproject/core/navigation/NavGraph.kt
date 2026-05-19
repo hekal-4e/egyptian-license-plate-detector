@@ -52,7 +52,9 @@ fun NavGraph() {
                 DashboardScreen(
                     onNavigateToScanner = { navController.navigate(Routes.Scanner.route) },
                     onNavigateToManualEntry = { navController.navigate(Routes.ManualEntry.route) },
-                    onNavigateToCheckout = { navController.navigate(Routes.Checkout.route) },
+                    onNavigateToCheckout = { sessionId ->
+                        navController.navigate(Routes.Checkout.createRoute(sessionId = sessionId))
+                    },
                     onNavigateToHistory = { navController.navigate(Routes.History.route) },
                     onNavigateToSettings = { navController.navigate(Routes.Settings.route) }
                 )
@@ -64,8 +66,8 @@ fun NavGraph() {
                     onNavigateToZoneSelection = { plateText ->
                         navController.navigate(Routes.ZoneSelection.createRoute(plateText))
                     },
-                    onNavigateToCheckout = {
-                        navController.navigate(Routes.Checkout.route)
+                    onNavigateToCheckout = { plateText ->
+                        navController.navigate(Routes.Checkout.createRoute(plateText = plateText))
                     },
                     onNavigateToManualEntry = {
                         navController.navigate(Routes.ManualEntry.route)
@@ -100,9 +102,25 @@ composable(
                 )
             }
 
-            composable(Routes.Checkout.route) {
+            composable(
+                route = Routes.Checkout.route,
+                arguments = listOf(
+                    navArgument("sessionId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("plateText") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) { backStackEntry ->
                 CheckoutScreen(
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    scannedSessionId = backStackEntry.arguments?.getString("sessionId"),
+                    scannedPlateText = backStackEntry.arguments?.getString("plateText")
                 )
             }
 
@@ -130,6 +148,9 @@ composable(
                         navController.navigate(Routes.Settings.route) {
                             popUpTo(Routes.Dashboard.route) { inclusive = false }
                         }
+                    },
+                    onNavigateToCheckout = { sessionId ->
+                        navController.navigate(Routes.Checkout.createRoute(sessionId = sessionId))
                     },
                     onNavigateToManualEntry = {
                         navController.navigate(Routes.ManualEntry.route) {

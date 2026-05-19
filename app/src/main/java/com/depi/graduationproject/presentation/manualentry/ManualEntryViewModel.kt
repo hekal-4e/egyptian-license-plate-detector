@@ -35,15 +35,17 @@ class ManualEntryViewModel @Inject constructor(
     )
 
     fun onNumbersChange(newNumbers: String) {
-        if (newNumbers.length <= 4) {
-            _numbers.value = newNumbers
-        }
+        _numbers.value = newNumbers
+            .filter { it.isDigit() || it in '\u0660'..'\u0669' }
+            .take(4)
     }
 
     fun onLettersChange(newLetters: String) {
-        if (newLetters.length <= 4) { // typically 3 or 4
-            _letters.value = newLetters
-        }
+        _letters.value = newLetters
+            .filterNot { it.isDigit() || it in '\u0660'..'\u0669' }
+            .replace("\\s+".toRegex(), " ")
+            .trimStart()
+            .take(7)
     }
 
     fun getCombinedPlate(): String {

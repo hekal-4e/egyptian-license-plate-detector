@@ -16,7 +16,7 @@ class ScanPlateUseCase @Inject constructor(
     suspend operator fun invoke(imageFrame: ImageFrame): ScanResult = withContext(Dispatchers.Default) {
         val analysis = plateAnalyzer.analyze(imageFrame)
 
-        if (analysis.text.isEmpty()) {
+        if (analysis.text.isBlank() || !analysis.isSuccess) {
             return@withContext ScanResult.NoPlateFound
         }
 

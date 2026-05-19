@@ -2,8 +2,6 @@ package com.depi.graduationproject.presentation.checkout
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,12 +21,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.depi.graduationproject.core.theme.*
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.presentation.components.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.depi.graduationproject.core.utils.PlateUtils
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -41,14 +39,16 @@ import com.google.zxing.RGBLuminanceSource
 fun CheckoutScreen(
     viewModel: CheckoutViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
-    scannedSessionId: String? = null
+    scannedSessionId: String? = null,
+    scannedPlateText: String? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showQrScanner by remember { mutableStateOf(false) }
 
-    LaunchedEffect(scannedSessionId) {
-        if (scannedSessionId != null) {
-            viewModel.onScanQrCode(scannedSessionId)
+    LaunchedEffect(scannedSessionId, scannedPlateText) {
+        when {
+            !scannedSessionId.isNullOrBlank() -> viewModel.onScanQrCode(scannedSessionId)
+            !scannedPlateText.isNullOrBlank() -> viewModel.onSearchQueryChanged(scannedPlateText)
         }
     }
 
@@ -140,10 +140,8 @@ fun CheckoutScreenContent(
                     }
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(uiState.searchResults) { session ->
-                        val zoneLetter = session.zoneId.take(1).uppercase()
-                        val (numbers, letters) = PlateUtils.splitPlateText(session.licensePlate)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    uiState.searchResults.forEach { session ->
                         ZoneOptionCard(
                             zoneName = "Zone ${session.zoneId}",
                             zoneDescription = session.licensePlate,

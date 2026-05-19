@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.domain.model.Zone
 import com.depi.graduationproject.domain.repository.IParkingRepository
@@ -36,6 +37,16 @@ class ZoneSelectionViewModel @Inject constructor(
     val uiState: StateFlow<ZoneSelectionUiState> = _uiState.asStateFlow()
 
     fun selectZoneAndCheckIn(zone: Zone, onSuccess: (String) -> Unit) {
+        val validatedPlate = plateText.trim()
+        val (numbers, letters) = PlateUtils.splitPlateText(validatedPlate)
+        if (validatedPlate.length < 4 || numbers.length < 2 || letters.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                isProcessing = false,
+                error = "Invalid plate text. Please go back and correct it."
+            )
+            return
+        }
+
         if (_uiState.value.isProcessing) return
         _uiState.value = _uiState.value.copy(isProcessing = true, error = null)
 
@@ -47,7 +58,7 @@ class ZoneSelectionViewModel @Inject constructor(
                 // Construct the session
                 val session = ParkingSession(
                     id = sessionId,
-                    licensePlate = plateText,
+                    licensePlate = validatedPlate,
                     zoneId = zone.id,
                     spotId = null, // Auto-assigned by Edge if needed
                     entryTime = System.currentTimeMillis(),
