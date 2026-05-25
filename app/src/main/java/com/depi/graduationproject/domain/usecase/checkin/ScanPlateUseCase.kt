@@ -1,5 +1,6 @@
 package com.depi.graduationproject.domain.usecase.checkin
 
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
 import com.depi.graduationproject.domain.model.ImageFrame
 import com.depi.graduationproject.domain.model.ParkingSession
@@ -20,13 +21,28 @@ class ScanPlateUseCase @Inject constructor(
             return@withContext ScanResult.NoPlateFound
         }
 
+        val normalizedPlate = PlateUtils.normalizeForStorage(analysis.text)
+        if (
+            normalizedPlate.isBlank() ||
+            !PlateUtils.isValidV4Plate(normalizedPlate) ||
+            analysis.confidence < MIN_DOMAIN_CONFIDENCE
+        ) {
+            return@withContext ScanResult.NoPlateFound
+        }
+
+        val normalizedAnalysis = if (normalizedPlate == analysis.text) {
+            analysis
+        } else {
+            analysis.copy(text = normalizedPlate)
+        }
+
         // Check for duplicate active session (FR-012)
-        val existingSession = parkingRepository.getActiveSessionByPlate(analysis.text)
+        val existingSession = parkingRepository.getActiveSessionByPlate(normalizedPlate)
 
         if (existingSession != null) {
-            ScanResult.AlreadyActive(existingSession, analysis)
+            ScanResult.AlreadyActive(existingSession, normalizedAnalysis)
         } else {
-            ScanResult.Success(analysis)
+            ScanResult.Success(normalizedAnalysis)
         }
     }
 
@@ -37,5 +53,9 @@ class ScanPlateUseCase @Inject constructor(
             val analysis: PlateAnalysisResult
         ) : ScanResult()
         object NoPlateFound : ScanResult()
+    }
+
+    private companion object {
+        private const val MIN_DOMAIN_CONFIDENCE = 0.60f
     }
 }

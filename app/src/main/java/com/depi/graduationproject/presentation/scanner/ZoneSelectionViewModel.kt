@@ -8,6 +8,7 @@ import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.domain.model.Zone
 import com.depi.graduationproject.domain.repository.IParkingRepository
+import com.depi.graduationproject.domain.usecase.checkin.ValidatePlateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +22,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ZoneSelectionViewModel @Inject constructor(
     private val parkingRepository: IParkingRepository,
+    private val validatePlateUseCase: ValidatePlateUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -37,28 +39,29 @@ class ZoneSelectionViewModel @Inject constructor(
     val uiState: StateFlow<ZoneSelectionUiState> = _uiState.asStateFlow()
 
     fun selectZoneAndCheckIn(zone: Zone, onSuccess: (String) -> Unit) {
-        val validatedPlate = plateText.trim()
-        val (numbers, letters) = PlateUtils.splitPlateText(validatedPlate)
-        if (validatedPlate.length < 4 || numbers.length < 2 || letters.isBlank()) {
-            _uiState.value = _uiState.value.copy(
-                isProcessing = false,
-                error = "Invalid plate text. Please go back and correct it."
-            )
-            return
-        }
-
         if (_uiState.value.isProcessing) return
         _uiState.value = _uiState.value.copy(isProcessing = true, error = null)
 
         viewModelScope.launch {
             try {
+                val isValid = validatePlateUseCase(plateText)
+                if (!isValid) {
+                    _uiState.value = _uiState.value.copy(
+                        isProcessing = false,
+                        error = "Invalid plate text. Please go back and correct it."
+                    )
+                    return@launch
+                }
+
+                val normalizedPlate = PlateUtils.normalizeForStorage(plateText)
+
                 // Generate a unique session ID
                 val sessionId = UUID.randomUUID().toString()
                 
                 // Construct the session
                 val session = ParkingSession(
                     id = sessionId,
-                    licensePlate = validatedPlate,
+                    licensePlate = normalizedPlate,
                     zoneId = zone.id,
                     spotId = null, // Auto-assigned by Edge if needed
                     entryTime = System.currentTimeMillis(),

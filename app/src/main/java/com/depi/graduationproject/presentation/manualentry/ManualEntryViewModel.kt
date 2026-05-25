@@ -2,6 +2,7 @@ package com.depi.graduationproject.presentation.manualentry
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.usecase.checkin.ValidatePlateUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,6 @@ class ManualEntryViewModel @Inject constructor(
     }
 
     fun getCombinedPlate(): String {
-        return "${_numbers.value} ${_letters.value}".trim()
+        return PlateUtils.normalizeForStorage("${_numbers.value} ${_letters.value}")
     }
 }

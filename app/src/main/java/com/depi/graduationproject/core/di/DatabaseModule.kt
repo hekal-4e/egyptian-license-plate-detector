@@ -31,6 +31,7 @@ object DatabaseModule {
             GarageDatabase::class.java,
             GarageDatabase.DATABASE_NAME
         )
+        .addMigrations(GarageDatabase.MIGRATION_1_2)
         .addCallback(GarageDatabase.getCallback())
         .fallbackToDestructiveMigration() // Useful for development, remove for production if needed
         .build()

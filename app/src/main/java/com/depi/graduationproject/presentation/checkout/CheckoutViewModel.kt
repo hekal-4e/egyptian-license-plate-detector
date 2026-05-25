@@ -2,6 +2,7 @@ package com.depi.graduationproject.presentation.checkout
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.model.ParkingSession
 import com.depi.graduationproject.domain.repository.IParkingRepository
 import com.depi.graduationproject.domain.usecase.checkout.CheckoutUseCase
@@ -29,7 +30,8 @@ class CheckoutViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(searchQuery = query)
         
         searchJob?.cancel()
-        if (query.length < 2) {
+        val normalizedQuery = PlateUtils.normalizeForStorage(query)
+        if (normalizedQuery.length < 2) {
             _uiState.value = _uiState.value.copy(searchResults = emptyList())
             return
         }
@@ -37,7 +39,7 @@ class CheckoutViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             delay(300) // Debounce
             _uiState.value = _uiState.value.copy(isLoading = true)
-            val results = parkingRepository.searchActiveByPlate(query)
+            val results = parkingRepository.searchActiveByPlate(normalizedQuery)
             _uiState.value = _uiState.value.copy(
                 searchResults = results,
                 isLoading = false

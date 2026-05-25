@@ -1,6 +1,7 @@
 package com.depi.graduationproject.data.repository
 
 import androidx.room.withTransaction
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.data.local.GarageDatabase
 import com.depi.graduationproject.data.local.dao.ParkingSessionDao
 import com.depi.graduationproject.data.local.dao.ZoneDao
@@ -49,9 +50,15 @@ class ParkingRepositoryImpl @Inject constructor(
         }
 
     override suspend fun checkIn(session: ParkingSession) = withContext(Dispatchers.IO) {
+        val normalizedPlate = PlateUtils.normalizeForStorage(session.licensePlate)
+        val normalizedSession = if (normalizedPlate.isNotBlank()) {
+            session.copy(licensePlate = normalizedPlate)
+        } else {
+            session
+        }
         database.withTransaction {
-            parkingDao.insert(session.toEntity())
-            zoneDao.incrementOccupied(session.zoneId)
+            parkingDao.insert(normalizedSession.toEntity())
+            zoneDao.incrementOccupied(normalizedSession.zoneId)
         }
     }
 

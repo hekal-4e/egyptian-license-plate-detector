@@ -36,14 +36,17 @@ class ScannerViewModel @Inject constructor(
         }
     }
 
-    fun processImage(bitmap: Bitmap) {
+    fun processImage(bitmap: Bitmap, showOverlay: Boolean = false) {
         if (!isAnalyzing.compareAndSet(false, true)) return
         if (_uiState.value.showVerificationSheet) {
             isAnalyzing.set(false)
             return
         }
 
-        _uiState.value = _uiState.value.copy(isProcessing = true)
+        _uiState.value = _uiState.value.copy(
+            isProcessing = true,
+            showProcessingOverlay = showOverlay
+        )
 
         viewModelScope.launch {
             try {
@@ -72,6 +75,7 @@ class ScannerViewModel @Inject constructor(
                         val (numbers, letters) = PlateUtils.splitPlateText(result.analysis.text)
                         _uiState.value = _uiState.value.copy(
                             isProcessing = false,
+                            showProcessingOverlay = false,
                             showVerificationSheet = true,
                             currentAnalysis = result.analysis,
                             duplicateSessionError = null,
@@ -83,6 +87,7 @@ class ScannerViewModel @Inject constructor(
                         val (numbers, letters) = PlateUtils.splitPlateText(result.analysis.text)
                         _uiState.value = _uiState.value.copy(
                             isProcessing = false,
+                            showProcessingOverlay = false,
                             showVerificationSheet = true,
                             currentAnalysis = result.analysis,
                             duplicateSessionError = "Plate already active in zone ${result.session.zoneId}",
@@ -91,12 +96,16 @@ class ScannerViewModel @Inject constructor(
                         )
                     }
                     is ScanPlateUseCase.ScanResult.NoPlateFound -> {
-                        _uiState.value = _uiState.value.copy(isProcessing = false)
+                        _uiState.value = _uiState.value.copy(
+                            isProcessing = false,
+                            showProcessingOverlay = false
+                        )
                     }
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isProcessing = false,
+                    showProcessingOverlay = false,
                     duplicateSessionError = "Error: ${e.message}"
                 )
             } finally {
@@ -108,6 +117,7 @@ class ScannerViewModel @Inject constructor(
     fun dismissVerification() {
         _uiState.value = _uiState.value.copy(
             showVerificationSheet = false,
+            showProcessingOverlay = false,
             currentAnalysis = null,
             duplicateSessionError = null,
             correctedPlateNumbers = "",
@@ -116,11 +126,19 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun updateCorrectedPlateNumbers(numbers: String) {
-        _uiState.value = _uiState.value.copy(correctedPlateNumbers = numbers)
+        val filtered = numbers
+            .filter { it.isDigit() || it in '\u0660'..'\u0669' }
+            .take(4)
+        _uiState.value = _uiState.value.copy(correctedPlateNumbers = filtered)
     }
 
     fun updateCorrectedPlateLetters(letters: String) {
-        _uiState.value = _uiState.value.copy(correctedPlateLetters = letters)
+        val filtered = letters
+            .filter { it in PlateUtils.ARABIC_LETTERS || it.isWhitespace() }
+            .replace("\\s+".toRegex(), " ")
+            .trimStart()
+            .take(7)
+        _uiState.value = _uiState.value.copy(correctedPlateLetters = filtered)
     }
 
     fun getCorrectedPlateText(): String {
@@ -130,7 +148,7 @@ class ScannerViewModel @Inject constructor(
         val letters = _uiState.value.correctedPlateLetters.ifEmpty {
             PlateUtils.splitPlateText(_uiState.value.currentAnalysis?.text ?: "").second
         }
-        return "$letters $numbers".trim()
+        return PlateUtils.normalizeForStorage("$letters $numbers")
     }
 
     fun toggleFlashlight() {
@@ -140,6 +158,7 @@ class ScannerViewModel @Inject constructor(
 
 data class ScannerUiState(
     val isProcessing: Boolean = false,
+    val showProcessingOverlay: Boolean = false,
     val showVerificationSheet: Boolean = false,
     val currentAnalysis: PlateAnalysisResult? = null,
     val isFlashlightOn: Boolean = false,

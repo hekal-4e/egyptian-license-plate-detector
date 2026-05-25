@@ -150,7 +150,19 @@ class YoloDetector(context: Context, modelPath: String) {
         // Apply Non-Maximum Suppression (NMS)
         val nmsResults = applyNms(results, iouThreshold = 0.45f)
 
-        return nmsResults.sortedByDescending { it.boundingBox.width() * it.boundingBox.height() }.take(1)
+        val selected = nmsResults
+            .sortedWith(
+                compareByDescending<DetectionResult> { it.confidence }
+                    .thenByDescending { it.boundingBox.width() * it.boundingBox.height() }
+            )
+            .firstOrNull()
+
+        if (selected != null) {
+            Log.d("YOLO", "Selected box=${selected.boundingBox} confidence=${selected.confidence}")
+            return listOf(selected)
+        }
+
+        return emptyList()
     }
 
     private fun applyNms(detections: List<DetectionResult>, iouThreshold: Float): List<DetectionResult> {

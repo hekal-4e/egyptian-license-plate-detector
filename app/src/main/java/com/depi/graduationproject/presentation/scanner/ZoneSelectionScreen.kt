@@ -58,17 +58,17 @@ fun ZoneSelectionScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(EmeraldGreen.copy(alpha = 0.2f))
+                            .background(MutedText.copy(alpha = 0.2f))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "AI Verified",
+                            text = "Plate Ready",
                             style = TinyCaps,
-                            color = EmeraldGreen
+                            color = SecondaryText
                         )
                     }
                     Text(
-                        text = "Detected in 0.3s",
+                        text = "Ready for zone selection",
                         style = TinyCaps,
                         color = MutedText
                     )
@@ -127,6 +127,16 @@ fun ZoneSelectionScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        uiState.error?.let { error ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = error,
+                color = NeonPink,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         GradientButton(
             text = "CONFIRM CHECK-IN",

@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.data.local.converter.Converters
 import com.depi.graduationproject.data.local.dao.GarageSettingsDao
 import com.depi.graduationproject.data.local.dao.ParkingSessionDao
@@ -23,7 +25,7 @@ import com.depi.graduationproject.data.local.entity.ZoneEntity
         ZoneEntity::class,
         GarageSettingsEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -35,6 +37,28 @@ abstract class GarageDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "garage_database"
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("SELECT id, licensePlate FROM parking_sessions")
+                val update = db.compileStatement(
+                    "UPDATE parking_sessions SET licensePlate = ? WHERE id = ?"
+                )
+                cursor.use {
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getString(0) ?: continue
+                        val rawPlate = cursor.getString(1) ?: ""
+                        val normalized = PlateUtils.normalizeForStorage(rawPlate)
+                        if (normalized.isNotBlank() && normalized != rawPlate) {
+                            update.bindString(1, normalized)
+                            update.bindString(2, id)
+                            update.executeUpdateDelete()
+                            update.clearBindings()
+                        }
+                    }
+                }
+            }
+        }
 
         /**
          * Room Database Callback for pre-population.

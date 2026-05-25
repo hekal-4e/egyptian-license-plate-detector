@@ -12,6 +12,7 @@ import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.presentation.components.CameraPermissionWrapper
 import com.depi.graduationproject.presentation.components.CameraPreview
 import com.depi.graduationproject.presentation.components.PlateVerificationSheet
+import com.depi.graduationproject.presentation.components.ScannerProcessingOverlay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +54,7 @@ fun ScannerScreen(
                     latestFrame?.recycle()
                     latestFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                     if (!uiState.isProcessing) {
-                        viewModel.processImage(bitmap)
+                        viewModel.processImage(bitmap, showOverlay = false)
                     } else {
                         bitmap.recycle()
                     }
@@ -70,17 +71,32 @@ fun ScannerScreen(
             onFlashlightToggle = { viewModel.toggleFlashlight() },
             onCapture = {
                 if (!uiState.isProcessing && !uiState.showVerificationSheet) {
-                    latestFrame?.copy(Bitmap.Config.ARGB_8888, false)?.let(viewModel::processImage)
+                    latestFrame
+                        ?.copy(Bitmap.Config.ARGB_8888, false)
+                        ?.let { viewModel.processImage(it, showOverlay = true) }
                 }
             },
             onManualEntry = onNavigateToManualEntry,
             modifier = Modifier.fillMaxSize()
         )
+
+        if (
+            shouldShowScannerProcessingOverlay(
+                isProcessing = uiState.isProcessing,
+                showProcessingOverlay = uiState.showProcessingOverlay,
+                showVerificationSheet = uiState.showVerificationSheet
+            )
+        ) {
+            ScannerProcessingOverlay(modifier = Modifier.fillMaxSize())
+        }
     }
 
     val currentAnalysis = uiState.currentAnalysis
     val analysisText = currentAnalysis?.text.orEmpty()
     val (detectedNumbers, detectedLetters) = PlateUtils.splitPlateText(analysisText)
+    val isVerified = currentAnalysis?.let {
+        it.isSuccess && it.confidence >= MIN_UI_VERIFIED_CONFIDENCE
+    } ?: false
 
     if (
         uiState.showVerificationSheet &&
@@ -90,6 +106,8 @@ fun ScannerScreen(
     ) {
         val numbers = uiState.correctedPlateNumbers.ifEmpty { detectedNumbers }
         val letters = uiState.correctedPlateLetters.ifEmpty { detectedLetters }
+        val isEdited = numbers != detectedNumbers || letters != detectedLetters
+        val isConfirmEnabled = isScannerConfirmEnabled(isVerified, isEdited, numbers, letters)
         val bottomSheetState = rememberModalBottomSheetState()
 
         ModalBottomSheet(
@@ -101,7 +119,8 @@ fun ScannerScreen(
                 plateNumbers = numbers,
                 plateLetters = letters,
                 croppedPlateImageBytes = uiState.currentAnalysis?.imageBytes,
-                isVerified = uiState.duplicateSessionError == null,
+                isVerified = isVerified,
+                isConfirmEnabled = isConfirmEnabled,
                 duplicateError = uiState.duplicateSessionError,
                 onNumbersChanged = { viewModel.updateCorrectedPlateNumbers(it) },
                 onLettersChanged = { viewModel.updateCorrectedPlateLetters(it) },
@@ -119,3 +138,22 @@ fun ScannerScreen(
         }
     }
 }
+
+private const val MIN_UI_VERIFIED_CONFIDENCE = 0.70f
+
+internal fun isScannerConfirmEnabled(
+    isVerified: Boolean,
+    isEdited: Boolean,
+    numbers: String,
+    letters: String
+): Boolean {
+    val currentText = PlateUtils.normalizeForStorage("$numbers $letters")
+    val isCurrentPlateValid = PlateUtils.isValidV4Plate(currentText)
+    return isCurrentPlateValid
+}
+
+internal fun shouldShowScannerProcessingOverlay(
+    isProcessing: Boolean,
+    showProcessingOverlay: Boolean,
+    showVerificationSheet: Boolean
+): Boolean = isProcessing && showProcessingOverlay && !showVerificationSheet

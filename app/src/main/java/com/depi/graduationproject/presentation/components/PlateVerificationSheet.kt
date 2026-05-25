@@ -24,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +42,7 @@ import com.depi.graduationproject.core.theme.PlateMono
 import com.depi.graduationproject.core.theme.PrimaryText
 import com.depi.graduationproject.core.theme.SecondaryText
 import com.depi.graduationproject.core.theme.TinyCaps
+import com.depi.graduationproject.core.theme.WarningAmber
 
 @Composable
 fun PlateVerificationSheet(
@@ -50,6 +50,7 @@ fun PlateVerificationSheet(
     plateLetters: String,
     croppedPlateImageBytes: ByteArray?,
     isVerified: Boolean,
+    isConfirmEnabled: Boolean,
     duplicateError: String?,
     onNumbersChanged: (String) -> Unit,
     onLettersChanged: (String) -> Unit,
@@ -115,7 +116,7 @@ fun PlateVerificationSheet(
                     modifier = Modifier
                         .size(width = 200.dp, height = 80.dp)
                         .clip(RoundedCornerShape(12.dp)),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Fit
                 )
             } else {
                 Text(
@@ -128,10 +129,14 @@ fun PlateVerificationSheet(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        val badgeBackground = if (isVerified) GreenBg else WarningAmber.copy(alpha = 0.2f)
+        val badgeColor = if (isVerified) EmeraldGreen else WarningAmber
+        val badgeText = if (isVerified) "AI Verified Match" else "Needs Review"
+
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(20.dp))
-                .background(GreenBg)
+                .background(badgeBackground)
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Row(
@@ -142,12 +147,12 @@ fun PlateVerificationSheet(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(EmeraldGreen)
+                        .background(badgeColor)
                 )
                 Text(
-                    text = "AI Verified Match",
+                    text = badgeText,
                     style = TinyCaps,
-                    color = EmeraldGreen
+                    color = badgeColor
                 )
             }
         }
@@ -222,7 +227,8 @@ fun PlateVerificationSheet(
             GradientButton(
                 text = if (duplicateError != null) "GO TO CHECKOUT" else "Confirm & Save",
                 onClick = onConfirm,
-                modifier = Modifier.weight(2f)
+                modifier = Modifier.weight(2f),
+                enabled = isConfirmEnabled
             )
         }
 

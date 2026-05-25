@@ -2,44 +2,124 @@ package com.depi.graduationproject.data.mlkit
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Log
+import com.depi.graduationproject.BuildConfig
+import com.depi.graduationproject.core.utils.PlateUtils
 import com.depi.graduationproject.domain.analyzer.IPlateAnalyzer
 import com.depi.graduationproject.domain.model.ImageFrame
 import com.depi.graduationproject.domain.model.PixelFormat
 import com.depi.graduationproject.domain.model.PlateAnalysisResult
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.Tensor
 import org.tensorflow.lite.support.common.FileUtil
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.math.max
-import kotlin.math.min
+
+private const val V4_DIGIT_SLOTS = 4
+private const val V4_LETTER_SLOTS = 3
+private const val V4_DIGIT_CLASSES = 11
+private const val V4_LENGTH_CLASSES = 2
+private val V4_LETTER_CLASSES = PlateUtils.ARABIC_LETTERS.size + 1
+
+internal data class TensorDescriptor(
+    val index: Int,
+    val name: String,
+    val shape: IntArray
+)
+
+internal data class OutputMapping(
+    val digitLogitsIndex: Int,
+    val letterLogitsIndex: Int,
+    val digitLenIndex: Int,
+    val letterLenIndex: Int
+)
+
+internal data class OutputMappingResult(
+    val mapping: OutputMapping,
+    val usedFallback: Boolean
+)
+
+internal fun mapV4Outputs(descriptors: List<TensorDescriptor>): OutputMappingResult {
+    var digitLogitsIndex: Int? = null
+    var letterLogitsIndex: Int? = null
+    val lengthCandidates = mutableListOf<TensorDescriptor>()
+
+    descriptors.forEach { descriptor ->
+        when {
+            descriptor.shape.contentEquals(intArrayOf(1, V4_DIGIT_SLOTS, V4_DIGIT_CLASSES)) ->
+                digitLogitsIndex = descriptor.index
+            descriptor.shape.contentEquals(intArrayOf(1, V4_LETTER_SLOTS, V4_LETTER_CLASSES)) ->
+                letterLogitsIndex = descriptor.index
+            descriptor.shape.contentEquals(intArrayOf(1, V4_LENGTH_CLASSES)) ->
+                lengthCandidates.add(descriptor)
+        }
+    }
+
+    if (digitLogitsIndex == null || letterLogitsIndex == null || lengthCandidates.size != 2) {
+        val shapes = descriptors.joinToString { "${it.name}=${it.shape.contentToString()}" }
+        error("Unable to map V4 outputs. Found: $shapes")
+    }
+
+    val digitLenCandidate = lengthCandidates.firstOrNull {
+        val name = it.name.lowercase()
+        name.contains("digit_len") ||
+            name.contains("digitlen") ||
+            name.contains("output_2") ||
+            name.contains("serving_default_output_2")
+    }
+    val letterLenCandidate = lengthCandidates.firstOrNull {
+        val name = it.name.lowercase()
+        name.contains("letter_len") ||
+            name.contains("letterlen") ||
+            name.contains("output_3") ||
+            name.contains("serving_default_output_3")
+    }
+
+    require(digitLenCandidate != null && letterLenCandidate != null) {
+        "Static INT8 V4 length outputs must be identifiable by name. " +
+            "Candidates=${lengthCandidates.joinToString { "${it.index}:${it.name}" }}"
+    }
+    require(digitLenCandidate.index != letterLenCandidate.index) {
+        "Static INT8 V4 length outputs must be distinct. " +
+            "Candidates=${lengthCandidates.joinToString { "${it.index}:${it.name}" }}"
+    }
+
+    return OutputMappingResult(
+        mapping = OutputMapping(
+            digitLogitsIndex = digitLogitsIndex!!,
+            letterLogitsIndex = letterLogitsIndex!!,
+            digitLenIndex = digitLenCandidate.index,
+            letterLenIndex = letterLenCandidate.index
+        ),
+        usedFallback = false
+    )
+}
 
 class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
     private lateinit var plateDetector: YoloDetector
-    private lateinit var plateReader: CrnnPlateReader
+    private lateinit var plateReader: PlateSlotTransformerReader
     private val inferenceMutex = Mutex()
 
-    override val ocrModelName: String = "CRNN"
+    override val ocrModelName: String = "EALPR V4 Static INT8 PlateSlotTransformer"
 
     override fun initialize() {
         if (isInitialized()) return
         try {
             plateDetector = YoloDetector(context, "best.tflite")
-            plateReader = CrnnPlateReader(context, "plate_ocr_v3_fp16.tflite")
-            Log.d(TAG, "YOLO+CRNN pipeline ready")
+            plateReader = PlateSlotTransformerReader(context, V4_OCR_MODEL)
+            Log.d(TAG, "YOLO+V4 static INT8 pipeline ready")
         } catch (exception: Exception) {
-            Log.e(TAG, "Failed to initialize YOLO+CRNN pipeline", exception)
+            Log.e(TAG, "Failed to initialize YOLO+V4 static INT8 pipeline", exception)
         }
     }
 
@@ -117,13 +197,29 @@ class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
                         plateBitmap.recycle()
                     }
 
-                    val isSuccess = reconstructedText.isNotBlank() && averageConfidence >= MIN_PLATE_CONFIDENCE
+                    if (readResult.isValid && averageConfidence < MIN_PLATE_CONFIDENCE) {
+                        Log.w(
+                            TAG,
+                            "Low confidence read text='$reconstructedText' " +
+                                "digits=${readResult.digitLength} letters=${readResult.letterLength} " +
+                                "confidence=${String.format(Locale.US, "%.3f", averageConfidence)}"
+                        )
+                    }
+
+                    val isSuccess = readResult.isValid &&
+                        reconstructedText.isNotBlank() &&
+                        averageConfidence >= MIN_PLATE_CONFIDENCE
+                    val message = when {
+                        !readResult.isValid || reconstructedText.isBlank() -> "Characters unclear"
+                        averageConfidence < MIN_PLATE_CONFIDENCE -> "Low confidence: $reconstructedText"
+                        else -> "Read: $reconstructedText"
+                    }
 
                     return@withLock PlateAnalysisResult(
                         isSuccess = isSuccess,
                         text = reconstructedText,
                         imageBytes = imageBytes,
-                        message = if (isSuccess) "Read: $reconstructedText" else "Characters unclear",
+                        message = message,
                         confidence = averageConfidence
                     )
                 } catch (exception: Exception) {
@@ -195,46 +291,35 @@ class TFLitePlateAnalyzer(private val context: Context) : IPlateAnalyzer {
 
     companion object {
         private const val TAG = "TFLitePlateAnalyzer"
-        private const val MIN_PLATE_CONFIDENCE = 0.40f
+        private const val V4_OCR_MODEL = "ealpr_v4_static_wi8_ai8_full_integer.tflite"
+        private const val MIN_PLATE_CONFIDENCE = 0.60f
         private const val DISPLAY_WIDTH_PX = 600
         private const val ENABLE_ROTATION_FALLBACK = true
     }
 }
 
-// Internal class to handle OCR using CRNN
-internal class CrnnPlateReader(
+internal class PlateSlotTransformerReader(
     context: Context,
-    modelPath: String = "plate_ocr_v3_fp16.tflite"
+    modelPath: String = "ealpr_v4_static_wi8_ai8_full_integer.tflite"
 ) {
     private val interpreter: Interpreter
-    private val inputWidth: Int
-    private val inputHeight: Int
-    private val inputChannels: Int
-    private val classCount: Int
-
-    private enum class ColorOrder { RGB, BGR }
-    private enum class Normalization { ZERO_TO_ONE, NEG_ONE_TO_ONE }
-    private enum class ResizeMode { STRETCH, LETTERBOX }
-
-    private data class InputConfig(
-        val colorOrder: ColorOrder,
-        val normalization: Normalization,
-        val resizeMode: ResizeMode
-    )
-
-    // Must match FULL_CHARSET from training
-    private val charset = listOf(
-        "أ", "ب", "ج", "د", "ر", "س", "ص", "ط", "ع", "ف",
-        "ق", "ك", "ل", "م", "ن", "ه", "و", "ي",
-        "٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"
-    )
-    private val blankIndex = 0
-
-    private val validPlateLetters = "أبجدرسصطعفقكلمنهوي"
+    private val outputMapping: OutputMapping
+    private val decoder = PlateSlotDecoder()
+    private val inputQuant: QuantParams
+    private val inputByteCount: Int
 
     data class PlateReadResult(
         val text: String,
-        val confidence: Float
+        val confidence: Float,
+        val digitLength: Int,
+        val letterLength: Int,
+        val isValid: Boolean
+    )
+
+    private data class QuantParams(
+        val dataType: DataType,
+        val scale: Float,
+        val zeroPoint: Int
     )
 
     init {
@@ -242,41 +327,80 @@ internal class CrnnPlateReader(
         val options = Interpreter.Options().apply { setNumThreads(4) }
         interpreter = Interpreter(modelFile, options)
 
-        val inputShape = interpreter.getInputTensor(0).shape()
-        require(inputShape.size == 4) { "CRNN input must be rank-4, got ${inputShape.contentToString()}" }
-        inputHeight = inputShape[1]
-        inputWidth = inputShape[2]
-        inputChannels = inputShape[3]
-        require(inputChannels == 3) { "CRNN input must have 3 channels, got ${inputShape.contentToString()}" }
-        classCount = charset.size + 1
+        val inputTensor = interpreter.getInputTensor(0)
+        logTensorContract("V4 input[0]", inputTensor)
+        requireQuantizedInput(inputTensor)
+        inputQuant = inputTensor.toQuantParams()
+        inputByteCount = inputTensor.numBytes()
 
-        Log.i(
-            TAG,
-            "CRNN loaded. input=${inputShape.contentToString()} " +
-                "output=${interpreter.getOutputTensor(0).shape().contentToString()} " +
-                "inputType=${interpreter.getInputTensor(0).dataType()} " +
-                "outputType=${interpreter.getOutputTensor(0).dataType()} " +
-                "classes=$classCount"
-        )
+        for (index in 0 until interpreter.outputTensorCount) {
+            logTensorContract("V4 output[$index]", interpreter.getOutputTensor(index))
+        }
+
+        outputMapping = mapOutputs()
     }
 
     fun read(plateBitmap: Bitmap): PlateReadResult {
-        val inputBuffer = preprocessBitmap(plateBitmap, DEFAULT_INPUT_CONFIG)
-        val logits = runModel(inputBuffer)
-        val decoded = greedyCtcDecode(logits)
-        val confidence = computeConfidence(logits)
+        val inputBuffer = preprocessBitmap(plateBitmap)
 
-        if (DEBUG_OCR) {
-            Log.d(TAG, "CTC raw='$decoded' confidence=$confidence path=${summarizeBestPath(logits)}")
-            runPreprocessProbe(plateBitmap)
+        val digitBuffer = allocateOutputBuffer(outputMapping.digitLogitsIndex)
+        val letterBuffer = allocateOutputBuffer(outputMapping.letterLogitsIndex)
+        val digitLenBuffer = allocateOutputBuffer(outputMapping.digitLenIndex)
+        val letterLenBuffer = allocateOutputBuffer(outputMapping.letterLenIndex)
+
+        val outputs = hashMapOf<Int, Any>(
+            outputMapping.digitLogitsIndex to digitBuffer,
+            outputMapping.letterLogitsIndex to letterBuffer,
+            outputMapping.digitLenIndex to digitLenBuffer,
+            outputMapping.letterLenIndex to letterLenBuffer
+        )
+
+        interpreter.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+
+        val digitLogits = toSlotLogits(
+            dequantizeOutput(outputMapping.digitLogitsIndex, digitBuffer),
+            V4_DIGIT_SLOTS,
+            V4_DIGIT_CLASSES
+        )
+        val letterLogits = toSlotLogits(
+            dequantizeOutput(outputMapping.letterLogitsIndex, letterBuffer),
+            V4_LETTER_SLOTS,
+            V4_LETTER_CLASSES
+        )
+        val digitLenLogits = dequantizeOutput(outputMapping.digitLenIndex, digitLenBuffer)
+        val letterLenLogits = dequantizeOutput(outputMapping.letterLenIndex, letterLenBuffer)
+
+        val decodeResult = decoder.decode(
+            digitLogits,
+            letterLogits,
+            digitLenLogits,
+            letterLenLogits
+        )
+
+        if (shouldLogDiagnostics(decodeResult)) {
+            logStats("digitLenLogits", digitLenLogits)
+            logStats("letterLenLogits", letterLenLogits)
+            digitLogits.forEachIndexed { index, slot ->
+                logStats("digitLogits[$index]", slot)
+            }
+            letterLogits.forEachIndexed { index, slot ->
+                logStats("letterLogits[$index]", slot)
+            }
+            Log.d(
+                TAG,
+                "V4 decode text='${decodeResult.text}' " +
+                    "digits=${decodeResult.digitLength} letters=${decodeResult.letterLength} " +
+                    "confidence=${String.format(Locale.US, "%.3f", decodeResult.confidence)} " +
+                    "valid=${decodeResult.isValid}"
+            )
         }
 
-        val (validatedText, isValid) = validateEgyptianPlate(decoded)
-        val finalConfidence = if (isValid) confidence else confidence * 0.8f
-
         return PlateReadResult(
-            text = validatedText,
-            confidence = finalConfidence
+            text = decodeResult.text,
+            confidence = decodeResult.confidence,
+            digitLength = decodeResult.digitLength,
+            letterLength = decodeResult.letterLength,
+            isValid = decodeResult.isValid
         )
     }
 
@@ -284,197 +408,194 @@ internal class CrnnPlateReader(
         interpreter.close()
     }
 
-    private fun runModel(inputBuffer: ByteBuffer): Array<FloatArray> {
-        val outputShape = interpreter.getOutputTensor(0).shape()
-        require(outputShape.size == 3 && outputShape[0] == 1) {
-            "CRNN output must be [1,T,C] or [1,C,T], got ${outputShape.contentToString()}"
-        }
+    private fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
+        val resized = Bitmap.createScaledBitmap(bitmap, INPUT_WIDTH, INPUT_HEIGHT, true)
+        val pixels = IntArray(INPUT_WIDTH * INPUT_HEIGHT)
+        resized.getPixels(pixels, 0, INPUT_WIDTH, 0, 0, INPUT_WIDTH, INPUT_HEIGHT)
 
-        val dim1 = outputShape[1]
-        val dim2 = outputShape[2]
-        val rawOutput = Array(1) { Array(dim1) { FloatArray(dim2) } }
-        interpreter.run(inputBuffer, rawOutput)
-        return toTimeMajorLogits(rawOutput[0], outputShape)
-    }
-
-    private fun toTimeMajorLogits(raw: Array<FloatArray>, shape: IntArray): Array<FloatArray> {
-        val dim1 = shape[1]
-        val dim2 = shape[2]
-        return when {
-            dim2 == classCount -> raw
-            dim1 == classCount -> Array(dim2) { timestep ->
-                FloatArray(dim1) { classIndex -> raw[classIndex][timestep] }
-            }
-            else -> error(
-                "Cannot infer CTC output layout. Expected one dimension to equal classCount=$classCount, " +
-                    "got ${shape.contentToString()}"
-            )
-        }
-    }
-
-    private fun preprocessBitmap(bitmap: Bitmap, config: InputConfig): ByteBuffer {
-        val resized = when (config.resizeMode) {
-            ResizeMode.STRETCH -> Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
-            ResizeMode.LETTERBOX -> letterboxBitmap(bitmap, inputWidth, inputHeight)
-        }
-        val pixelCount = inputWidth * inputHeight
-        val pixels = IntArray(pixelCount)
-        resized.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
-        if (resized !== bitmap) resized.recycle()
-
-        val buffer = ByteBuffer.allocateDirect(pixelCount * 3 * 4)
+        val buffer = ByteBuffer
+            .allocateDirect(inputByteCount)
             .order(ByteOrder.nativeOrder())
 
-        for (pixel in pixels) {
-            val r = pixel shr 16 and 0xFF
-            val g = pixel shr 8 and 0xFF
-            val b = pixel and 0xFF
-
-            val first = if (config.colorOrder == ColorOrder.RGB) r else b
-            val third = if (config.colorOrder == ColorOrder.RGB) b else r
-            buffer.putFloat(normalize(first, config.normalization))
-            buffer.putFloat(normalize(g, config.normalization))
-            buffer.putFloat(normalize(third, config.normalization))
+        for (channel in 0 until INPUT_CHANNELS) {
+            for (pixel in pixels) {
+                val value = when (channel) {
+                    0 -> pixel shr 16 and 0xFF
+                    1 -> pixel shr 8 and 0xFF
+                    else -> pixel and 0xFF
+                }
+                val normalized = value / NORMALIZATION_DIVISOR - 1f
+                buffer.put(quantizeToByte(normalized, inputQuant))
+            }
         }
+
         buffer.rewind()
+        if (resized !== bitmap) {
+            resized.recycle()
+        }
         return buffer
     }
 
-    private fun normalize(channel: Int, normalization: Normalization): Float {
-        val zeroToOne = channel / 255f
-        return when (normalization) {
-            Normalization.ZERO_TO_ONE -> zeroToOne
-            Normalization.NEG_ONE_TO_ONE -> zeroToOne * 2f - 1f
+    private fun quantizeToByte(value: Float, q: QuantParams): Byte {
+        val raw = (value / q.scale + q.zeroPoint).roundToInt()
+        val clamped = when (q.dataType) {
+            DataType.INT8 -> raw.coerceIn(-128, 127)
+            DataType.UINT8 -> raw.coerceIn(0, 255)
+            else -> error("Unsupported quantized input dtype: ${q.dataType}")
+        }
+        return clamped.toByte()
+    }
+
+    private fun allocateOutputBuffer(index: Int): ByteBuffer {
+        val tensor = interpreter.getOutputTensor(index)
+        require(tensor.dataType() == DataType.INT8 || tensor.dataType() == DataType.UINT8) {
+            "V4 static output[$index] must be INT8/UINT8, got ${tensor.dataType()}"
+        }
+        val q = tensor.quantizationParams()
+        require(q.scale > 0f) {
+            "V4 static output[$index] has invalid scale=${q.scale}"
+        }
+        return ByteBuffer
+            .allocateDirect(tensor.numBytes())
+            .order(ByteOrder.nativeOrder())
+    }
+
+    private fun dequantizeOutput(index: Int, buffer: ByteBuffer): FloatArray {
+        val tensor = interpreter.getOutputTensor(index)
+        val q = tensor.quantizationParams()
+        val dataType = tensor.dataType()
+        val count = tensor.shape().fold(1) { acc, dim -> acc * dim }
+
+        buffer.rewind()
+        return FloatArray(count) {
+            val raw = when (dataType) {
+                DataType.INT8 -> buffer.get().toInt()
+                DataType.UINT8 -> buffer.get().toInt() and 0xFF
+                else -> error("Unsupported quantized output dtype: $dataType")
+            }
+            (raw - q.zeroPoint) * q.scale
         }
     }
 
-    private fun letterboxBitmap(bitmap: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
-        val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-        canvas.drawColor(Color.WHITE)
-
-        val scale = min(
-            targetWidth.toFloat() / bitmap.width.toFloat(),
-            targetHeight.toFloat() / bitmap.height.toFloat()
-        )
-        val scaledWidth = max(1, (bitmap.width * scale).toInt())
-        val scaledHeight = max(1, (bitmap.height * scale).toInt())
-        val left = (targetWidth - scaledWidth) / 2
-        val top = (targetHeight - scaledHeight) / 2
-
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        canvas.drawBitmap(
-            bitmap,
-            Rect(0, 0, bitmap.width, bitmap.height),
-            Rect(left, top, left + scaledWidth, top + scaledHeight),
-            paint
-        )
-        return result
+    private fun toSlotLogits(flat: FloatArray, slots: Int, classes: Int): Array<FloatArray> {
+        require(flat.size == slots * classes) {
+            "Expected ${slots * classes} logits, got ${flat.size}"
+        }
+        return Array(slots) { slot ->
+            FloatArray(classes) { cls ->
+                flat[slot * classes + cls]
+            }
+        }
     }
 
-    private fun runPreprocessProbe(bitmap: Bitmap) {
-        val configs = listOf(
-            DEFAULT_INPUT_CONFIG,
-            InputConfig(ColorOrder.BGR, Normalization.ZERO_TO_ONE, ResizeMode.STRETCH),
-            InputConfig(ColorOrder.RGB, Normalization.NEG_ONE_TO_ONE, ResizeMode.STRETCH),
-            InputConfig(ColorOrder.RGB, Normalization.ZERO_TO_ONE, ResizeMode.LETTERBOX)
-        )
+    private fun requireQuantizedInput(inputTensor: Tensor) {
+        val inputShape = inputTensor.shape()
+        val inputType = inputTensor.dataType()
 
-        configs.forEach { config ->
-            val logits = runModel(preprocessBitmap(bitmap, config))
-            Log.d(
+        require(
+            inputShape.contentEquals(intArrayOf(1, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH))
+        ) {
+            "V4 static INT8 input must be [1,$INPUT_CHANNELS,$INPUT_HEIGHT,$INPUT_WIDTH], " +
+                "got ${inputShape.contentToString()}"
+        }
+
+        require(inputType == DataType.INT8 || inputType == DataType.UINT8) {
+            "V4 static full-integer input must be INT8/UINT8, got $inputType"
+        }
+
+        val q = inputTensor.quantizationParams()
+        require(q.scale > 0f) {
+            "V4 static input must have quantization scale > 0, got ${q.scale}"
+        }
+    }
+
+    private fun logTensorContract(prefix: String, tensor: Tensor) {
+        val q = tensor.quantizationParams()
+        Log.i(
+            TAG,
+            "$prefix name=${tensor.name()} shape=${tensor.shape().contentToString()} " +
+                "dtype=${tensor.dataType()} scale=${q.scale} zeroPoint=${q.zeroPoint}"
+        )
+    }
+
+    private fun Tensor.toQuantParams(): QuantParams {
+        val q = quantizationParams()
+        return QuantParams(
+            dataType = dataType(),
+            scale = q.scale,
+            zeroPoint = q.zeroPoint
+        )
+    }
+
+    private fun logStats(name: String, values: FloatArray) {
+        if (values.isEmpty()) {
+            Log.d(TAG, "$name empty")
+            return
+        }
+
+        var minValue = values[0]
+        var maxValue = values[0]
+        var argmax = 0
+        var sum = 0.0
+
+        values.forEachIndexed { index, value ->
+            if (value < minValue) minValue = value
+            if (value > maxValue) {
+                maxValue = value
+                argmax = index
+            }
+            sum += value
+        }
+
+        val mean = sum / values.size
+        Log.d(
+            TAG,
+            "$name min=$minValue max=$maxValue " +
+                "mean=${String.format(Locale.US, "%.6f", mean)} " +
+                "argmax=$argmax values=${values.joinToString()}"
+        )
+    }
+
+    private fun shouldLogDiagnostics(result: PlateSlotDecoder.DecodeResult): Boolean {
+        if (!BuildConfig.DEBUG) return false
+        return result.text == DEFAULT_LOW_RESULT || result.confidence < DIAGNOSTIC_CONFIDENCE_THRESHOLD
+    }
+
+    private fun mapOutputs(): OutputMapping {
+        val descriptors = (0 until interpreter.outputTensorCount).map { index ->
+            val tensor = interpreter.getOutputTensor(index)
+            TensorDescriptor(index, tensor.name(), tensor.shape())
+        }
+
+        val result = mapV4Outputs(descriptors)
+        if (result.usedFallback) {
+            Log.w(
                 TAG,
-                "Probe $config -> '${greedyCtcDecode(logits)}' " +
-                    "confidence=${computeConfidence(logits)} path=${summarizeBestPath(logits)}"
+                "Length output names not found; using index order " +
+                    "(digitLen=${result.mapping.digitLenIndex}, " +
+                    "letterLen=${result.mapping.letterLenIndex})."
             )
         }
-    }
 
-    private fun greedyCtcDecode(logits: Array<FloatArray>): String {
-        val result = StringBuilder()
-        var prevIndex = -1
-
-        for (timestep in logits) {
-            val maxIndex = timestep.indices.maxByOrNull { timestep[it] } ?: continue
-            if (maxIndex != blankIndex && maxIndex != prevIndex) {
-                val charIdx = maxIndex - 1
-                if (charIdx in charset.indices) {
-                    result.append(charset[charIdx])
-                }
-            }
-            prevIndex = maxIndex
-        }
-        return result.toString()
-    }
-
-    private fun computeConfidence(logits: Array<FloatArray>): Float {
-        var sumConf = 0f
-        var count = 0
-        var prevIndex = -1
-
-        for (timestep in logits) {
-            val maxIndex = timestep.indices.maxByOrNull { timestep[it] } ?: continue
-            if (maxIndex != blankIndex && maxIndex != prevIndex) {
-                val charIdx = maxIndex - 1
-                if (charIdx in charset.indices) {
-                    val maxVal = timestep.max()
-                    val expSum = timestep.sumOf { Math.exp((it - maxVal).toDouble()) }
-                    val prob = Math.exp((timestep[maxIndex] - maxVal).toDouble()) / expSum
-                    sumConf += prob.toFloat()
-                    count++
-                }
-            }
-            prevIndex = maxIndex
-        }
-        return if (count > 0) sumConf / count else 0f
-    }
-
-    private fun summarizeBestPath(logits: Array<FloatArray>): String {
-        val compact = mutableListOf<Int>()
-        var prev = -1
-        logits.forEach { timestep ->
-            val maxIndex = timestep.indices.maxByOrNull { timestep[it] } ?: return@forEach
-            if (maxIndex != prev) compact.add(maxIndex)
-            prev = maxIndex
-        }
-        return compact.take(80).joinToString(",")
-    }
-
-    private fun validateEgyptianPlate(raw: String): Pair<String, Boolean> {
-        val letters = raw.filter { validPlateLetters.contains(it) }
-        val digits = raw.filter { it in '\u0660'..'\u0669' }
-
-        val isValid = letters.length in 2..3 && digits.length in 3..4
-        if (isValid) {
-            val lastLetterIdx = raw.indexOfLast { validPlateLetters.contains(it) }
-            val firstDigitIdx = raw.indexOfFirst { it in '\u0660'..'\u0669' }
-            if (firstDigitIdx != -1 && lastLetterIdx > firstDigitIdx) {
-                Log.w("CrnnPlateReader", "Suspicious order: letters/digits interleaved in '$raw'")
-            }
-        }
-
-        val orderedText = buildString {
-            for (char in raw) {
-                if (validPlateLetters.contains(char) || char in '\u0660'..'\u0669') {
-                    append(char)
-                }
-            }
-        }
-
-        return if (isValid) {
-            "$letters $digits" to true
-        } else {
-            orderedText to false
-        }
-    }
-
-    private companion object {
-        private const val TAG = "CrnnPlateReader"
-        private const val DEBUG_OCR = false
-        private val DEFAULT_INPUT_CONFIG = InputConfig(
-            colorOrder = ColorOrder.RGB,
-            normalization = Normalization.ZERO_TO_ONE,
-            resizeMode = ResizeMode.STRETCH
+        Log.i(
+            TAG,
+            "V4 output mapping: digit=${result.mapping.digitLogitsIndex}, " +
+                "letter=${result.mapping.letterLogitsIndex}, " +
+                "digitLen=${result.mapping.digitLenIndex}, " +
+                "letterLen=${result.mapping.letterLenIndex}"
         )
+
+        return result.mapping
+    }
+
+    companion object {
+        private const val TAG = "PlateSlotTransformer"
+        private const val INPUT_WIDTH = 320
+        private const val INPUT_HEIGHT = 96
+        private const val INPUT_CHANNELS = 3
+        private const val NORMALIZATION_DIVISOR = 127.5f
+
+        private const val DIAGNOSTIC_CONFIDENCE_THRESHOLD = 0.60f
+        private const val DEFAULT_LOW_RESULT = "000أأ"
     }
 }
