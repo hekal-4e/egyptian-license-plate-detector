@@ -1,6 +1,584 @@
-# 🚗 EALPR V6 — Egyptian Automatic License Plate Recognition ### PlateSlotTransformer: Structured Visual Parsing for Egyptian License Plates [![Accuracy](https://img.shields.io/badge/Exact--Match%20Accuracy-93.27%25-brightgreen?style=flat-square)](https://github.com/hekal-4e/egyptian-license-plate-detector) [![Model Size](https://img.shields.io/badge/TFLite%20Model-7.78%20MB-blue?style=flat-square)](https://github.com/hekal-4e/egyptian-license-plate-detector) [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org) [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org) [![TFLite](https://img.shields.io/badge/TensorFlow%20Lite-Edge%20Ready-FF6F00?style=flat-square&logo=tensorflow&logoColor=white)](https://tensorflow.org/lite) [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE) 
-**A custom deep learning model that reformulates Egyptian license plate recognition as structured slot prediction — achieving 93.27% exact-match accuracy on a locked real-world test set, deployable on-device at 7.78 MB.** 
-> 📸 **[PLACEHOLDER — Add a demo GIF or prediction screenshot here]** 
-[📖 Read the Thesis](#-thesis--paper) · [🚀 Quick Start](#-quick-start) · [📊 Results](#-results) · [🏗️ Architecture](#️-architecture) 
---- ## 📌 Table of Contents - [Overview](#-overview) - [Demo & Screenshots](#-demo--screenshots) - [Key Results](#-key-results) - [Architecture](#️-architecture) - [Dataset](#-dataset) - [Quick Start](#-quick-start) - [Training](#-training) - [Export & Quantization](#-export--quantization) - [Flutter Integration](#-flutter-integration) - [Comparison with Baseline](#-comparison-with-baseline) - [Failure Modes](#-failure-modes) - [Project Context](#-project-context) - [Thesis & Paper](#-thesis--paper) - [License](#-license) --- ## 🔍 Overview Egyptian license plates contain a fixed-format combination of **3–4 numeric digits** and **2–3 Arabic letters**. Generic OCR engines and CTC-based sequence models fail on this domain because they are not designed for: - Arabic glyph ambiguity under real-world distortions (glare, blur, perspective) - The constrained plate grammar (known structure with optional slots) - Edge-device deployment with strict latency and memory constraints **EALPR V6** solves this by reformulating plate recognition as **structured visual parsing**. Instead of decoding a variable-length character stream (CTC), the model predicts seven fixed semantic slots in parallel — one per plate position — using a Transformer decoder with learned slot queries. | Approach | Exact-Match Accuracy | Method | |---|---|---| | V3 CRNN-CTC (baseline) | 75.00% | Temporal sequence + CTC collapse | | **V6 PlateSlotTransformer (ours)** | **93.07%** | Parallel slot queries + Transformer | | **V6 Dynamic INT8 TFLite (deployed)** | **93.27%** | Quantized edge model | --- ## 🖼️ Demo & Screenshots ### Model Predictions > 📸 **[PLACEHOLDER — Add a grid of plate images with ground truth vs. predicted labels]** --- ### Training Curves > 📸 **[PLACEHOLDER — Add the training loss + validation accuracy chart]** --- ### Architecture Diagram > 📸 **[PLACEHOLDER — Add the PlateSlotTransformer architecture diagram]** --- ### Flutter App Integration > 📸 **[PLACEHOLDER — Add app screenshots showing the scanner in action]** --- ## 📊 Key Results Evaluated on a **locked, stratified real-world test set of 1,574 Egyptian license plate crops** — never used during training or hyperparameter tuning. ### Accuracy | Metric | Value | |---|---| | Exact-Match Accuracy (PyTorch FP32) | 93.07% | | Exact-Match Accuracy (Dynamic INT8 TFLite) | **93.27%** | | Character Error Rate (CER) | 0.0169 | | Total Exact-Match Errors | 109 / 1,574 | | Improvement over V3 Baseline | **+18.07 pp** | | Relative Error Reduction | **72.28%** | ### Quantization Tradeoff | Model Variant | Size | Exact Match | CER | Integer I/O | |---|---|---|---|---| | FP32 TFLite | 29.07 MB | 93.07% | 0.01690 | No | | Weight-only INT8 | 7.80 MB | 93.01% | 0.01710 | No | | **Dynamic Range INT8** ✅ | **7.78 MB** | **93.27%** | **0.01685** | No | | Static Full-Integer INT8 | 7.94 MB | 92.69% | 0.01740 | Yes | > ✅ **Selected for production deployment:** `dynamic_wi8_afp32` — delivers a regularized accuracy *gain* over the FP32 baseline at 73.2% smaller footprint. ### On-Device Runtime (CPH2811 / ARM64) | Stage | Median Latency | P95 Latency | |---|---|---| | YOLO Plate Detection | 120 ms | 180 ms | | OCR Inference (V6 Slot Transformer) | 280 ms | 360 ms | | End-to-End Scan | **480 ms** | **650 ms** | --- ## 🏗️ Architecture ### Overview ``` Input Image │ ▼ ┌─────────────────┐ │ YOLO Detector │ ← plate_detection.tflite │ (Localization) │ 640×640 input, YOLOv8-style └────────┬────────┘ │ tight plate crop (0px padding) ▼ ┌──────────────────────────────────────────────────┐ │ PlateSlotTransformer (V6) │ ← plate_ocr.tflite │ │ │ Input: [1, 3, 96, 320] NCHW, normalized [-1,1] │ │ │ │ ┌─────────────────────────────────┐ │ │ │ CNN Backbone │ │ │ │ Conv-BN-SiLU + SE Residual │ │ │ │ [1,3,96,320] → 80 tokens │ │ │ └──────────────┬──────────────────┘ │ │ │ │ │ ┌──────────────▼──────────────────┐ │ │ │ Transformer Encoder │ │ │ │ 4 layers, 8 heads, d=256 │ │ │ │ Global self-attention │ │ │ └──────────────┬──────────────────┘ │ │ │ │ │ ┌──────────────▼──────────────────┐ │ │ │ Slot Decoder (7 queries) │ │ │ │ D0 D1 D2 D3 | L0 L1 L2 │ │ │ │ Cross-attention over encoder │ │ │ └──────────────┬──────────────────┘ │ │ │ │ │ ┌──────────────▼──────────────────┐ │ │ │ 4 Output Heads (parallel) │ │ │ │ digit_logits [1, 4, 11] │ │ │ │ letter_logits [1, 3, 18] │ │ │ │ digit_len [1, 4] │ │ │ │ letter_len [1, 3] │ │ │ └─────────────────────────────────┘ │ └──────────────────────────────────────────────────┘ │ ▼ Canonical Plate String e.g. 6239 م ق ع ``` ### Why Slot Queries vs. CTC | Dimension | CRNN-CTC (V3) | PlateSlotTransformer (V6) | |---|---|---| | Output representation | Variable-length sequence + blank | 4 fixed structured heads | | Decoding | CTC collapse, blank removal | Parallel argmax, PAD rejection | | Grammar awareness | Post-processing only | Built into digit/letter/length heads | | Repeated digits | Prone to collapse errors | Independent slot per position | | Global context | Limited (convolutional) | Full self-attention over 80 tokens | ### Output Heads ``` digit_logits [1, 4, 11] → 4 digit slots, classes 0-9 + PAD (idx 10) letter_logits [1, 3, 18] → 3 letter slots, 17 Arabic letters + PAD (idx 17) digit_len [1, 4] → active digit count: argmax + 1 → 1..4 letter_len [1, 3] → active letter count: argmax + 1 → 1..3 ``` **Arabic letter alphabet (17 classes, V6 — Ya ي removed per official Egyptian plate standards):** ``` أ ب ج د ر س ص ط ع ف ق ك ل م ن ه و ``` --- ## 📦 Dataset ### Fusion Pipeline Two public Egyptian plate datasets were merged into a single unified corpus: | Source | Raw Entries | Retained | Notes | |---|---|---|---| | [Machathon 3.0](https://www.kaggle.com/competitions/machathon-3) | 5,279 | 761 | RTL→LTR label correction, invalid-char removal | | [Ahmedeko Egypt Cars Plates](https://www.kaggle.com/datasets/ahmedeko/egypt-cars-plates) | 9,947 | 7,332 | English→Arabic transliteration, grammar filter | | **Unified real dataset** | **15,226** | **8,093** | Strict plate grammar validation applied | ### Split | Partition | Images | Notes | |---|---|---| | Training | 6,519 | Stratified 80% split, `SPLIT_SEED=42` | | **Locked test set** | **1,574** | Never touched during training or tuning | Plate format distribution in training: - `L3-D4` (3 letters, 4 digits): 6,037 - `L2-D4` (2 letters, 4 digits): 192 - `L2-D3` (2 letters, 3 digits): 152 - `L3-D3` (3 letters, 3 digits): 138 ### Label Normalization All labels normalized to canonical form: **digits first, then Arabic letters** (LTR order). English-to-Arabic mapping (Ahmedeko): ``` A→أ B→ب J/G→ج D→د R→ر S/C→س X→ص T→ط E→ع F→ف Q→ق K→ك L→ل M→م N→ن H→ه W/O→و Y/I→ي ``` --- ## 🚀 Quick Start ### Requirements ```bash pip install torch torchvision torchaudio pip install tensorflow # for TFLite export pip install albumentations opencv-python pillow pip install numpy pandas scikit-learn tqdm ``` ### Run Inference (PyTorch) ```python from model import EALPRv6PlateSlotTransformer from inference import decode_plate import torch from PIL import Image # Load model model = EALPRv6PlateSlotTransformer() model.load_state_dict(torch.load("checkpoints/ealpr_v6_best.pth")) model.eval() # Load and preprocess plate crop image = Image.open("plate_crop.jpg").convert("RGB") # Run inference with torch.no_grad(): result = decode_plate(model, image) print(result.plate_text) # e.g. "6239معق" print(result.confidence) # e.g. 0.97 print(result.digits) # e.g. "6239" print(result.letters) # e.g. "معق" ``` ### Run Inference (TFLite — Edge Device) ```python import tensorflow as tf import numpy as np from PIL import Image # Load TFLite model interpreter = tf.lite.Interpreter(model_path="models/dynamic_wi8_afp32.tflite") interpreter.allocate_tensors() # Preprocess: resize to 320×96, normalize to [-1, 1], NCHW image = Image.open("plate_crop.jpg").convert("RGB").resize((320, 96)) arr = np.array(image, dtype=np.float32) arr = (arr / 255.0 - 0.5) / 0.5 # normalize arr = np.transpose(arr, (2, 0, 1)) # HWC → CHW arr = np.expand_dims(arr, 0) # → [1, 3, 96, 320] # Run input_details = interpreter.get_input_details() interpreter.set_tensor(input_details[0]['index'], arr) interpreter.invoke() # Decode outputs output_details = interpreter.get_output_details() digit_logits = interpreter.get_tensor(output_details[0]['index']) # [1, 4, 11] letter_logits = interpreter.get_tensor(output_details[1]['index']) # [1, 3, 18] digit_len = interpreter.get_tensor(output_details[2]['index']) # [1, 4] letter_len = interpreter.get_tensor(output_details[3]['index']) # [1, 3] n_digits = np.argmax(digit_len) + 1 n_letters = np.argmax(letter_len) + 1 DIGITS = "0123456789" LETTERS = "أبجدرسصطعفقكلمنهو" plate = "" for i in range(n_digits): cls = np.argmax(digit_logits[0][i]) if cls < 10: plate += DIGITS[cls] for i in range(n_letters): cls = np.argmax(letter_logits[0][i]) if cls < 17: plate += LETTERS[cls] print(plate) ``` --- ## 🎓 Training ### Reproduce Training ```bash # Step 1: Prepare the dataset python scripts/prepare_dataset.py \ --machathon_dir data/machathon \ --ahmedeko_dir data/ahmedeko \ --output_dir data/unified \ --split_seed 42 # Step 2: Train (Mixed phase: synthetic + real) python train.py \ --config configs/v6_mixed.yaml \ --output checkpoints/ # Step 3: Fine-tune on real data only python train.py \ --config configs/v6_finetune.yaml \ --resume checkpoints/mixed_best.pth \ --output checkpoints/ ``` ### Hyperparameters | Parameter | Mixed Phase | Fine-tuning Phase | |---|---|---| | Epochs | 50 | 25 | | Batch size | 48 | 48 | | Optimizer | AdamW | AdamW | | Learning rate | 3×10⁻⁴ | 7×10⁻⁵ | | Weight decay | 2×10⁻⁴ | 1×10⁻⁴ | | Scheduler | OneCycleLR | OneCycleLR | | Gradient clip | 3.0 | 3.0 | | Mixed precision | ✅ (CUDA) | ✅ (CUDA) | **Best checkpoint:** Real fine-tuning phase, epoch 12 — 94.34% internal validation accuracy. ### Loss Function ``` L = L_digit + L_letter + 0.35 × (L_digit_len + L_letter_len) ``` All slot losses use label smoothing = 0.02. ### Data Augmentation Applied during training only: | Transform | Parameter | Probability | |---|---|---| | Perspective | scale 0.015–0.06 | 0.45 | | Affine shear | -4° to +4° | 0.25 | | Brightness/Contrast | limit 0.28 | 0.70 | | Gaussian noise | variance 5–45 | 0.35 | | Gaussian blur | kernel limit 3 | 0.15 | --- ## 📤 Export & Quantization ### Export to TFLite ```bash python scripts/export_tflite.py \ --checkpoint checkpoints/v6_best.pth \ --output_dir models/ \ --calib_data data/unified/test/ \ --calib_seed 20260523 \ --calib_size 512 ``` This script generates and evaluates all 4 quantization variants, then automatically selects the best-performing candidate based on regularized accuracy gain. ### Model Files ``` models/ ├── fp32.tflite # 29.07 MB — FP32 reference ├── weight_only_int8.tflite # 7.80 MB ├── dynamic_wi8_afp32.tflite # 7.78 MB ← selected for deployment └── static_full_int8.tflite # 7.94 MB — integer I/O ``` --- ## 📱 Flutter Integration This model is deployed in the **Omni Parking** Flutter app as part of an end-to-end smart parking system. The integration uses `tflite_flutter` with a dedicated worker isolate so inference does not block the UI thread. **Key integration contract:** ```dart // Input tensor: [1, 3, 96, 320] Float32 or INT8 NCHW // Output tensors: // digit_logits [1, 4, 11] // letter_logits [1, 3, 18] // digit_len [1, 4] // letter_len [1, 3] _ocrInterpreter!.runForMultipleInputs([ocrInput], { _digitLogitsIdx: raw0, // [1,4,11] _letterLogitsIdx: raw1, // [1,3,18] _digitLenIdx: raw2, // [1,4] _letterLenIdx: raw3, // [1,3] }); ``` See the [Omni Parking Flutter App](https://github.com/hekal-4e/omni-parking) for the full mobile application. --- ## 📈 Comparison with Baseline ### V3 CRNN-CTC vs. V6 PlateSlotTransformer | Dimension | EALPR V3 (CRNN-CTC) | EALPR V6 (PlateSlotTransformer) | |---|---|---| | Architecture | CRNN + TCN + CTC | CNN + Transformer + Slot Queries | | Exact-match accuracy | 75.00% | **93.27%** | | Decoding | Sequential CTC collapse | Parallel slot argmax | | Grammar enforcement | Post-processing | Model heads (digit/letter/length) | | Repeated digit handling | CTC collapse risk | Independent slots | | Mobile model size | — | **7.78 MB** (INT8) | | Error reduction | — | **72.28% relative** | --- ## ⚠️ Failure Modes | Failure Source | Effect | Mitigation | |---|---|---| | Motion blur | Strokes merge, digit edges lost | Guided capture, retake flow | | Glare / reflection | Character regions saturated | Operator guidance, field augmentation | | Tight YOLO crop | First/last character partially cut | Crop padding, confidence threshold | | Arabic glyph similarity | Letter slot confusion (ه/و/ر) | Balanced real data, confusion matrix analysis | | Wrong model asset | Decoder receives incompatible shapes | Fail-fast tensor validation at init | | Night / low-light | Low contrast, noisy features | Future: night-condition field data | **Worst per-character error rates on locked test set:** | Character | Error Rate | Errors / Support | |---|---|---| | ه (Heh) | 10.81% | 4 / 37 | | ر (Ra) | 2.90% | 7 / 241 | | س (Seen) | 2.86% | 12 / 420 | | 7 | 2.79% | 19 / 682 | | 2 | 2.50% | 15 / 600 | --- ## 🏫 Project Context This repository contains the ML model component of **Omni Parking** — a graduation project at: > **Thebes Higher Institute of Computer & Management Sciences** > Academic Year 2025–2026 · Supervised by Dr. Eman Monir **Team:** - **Mahmoud Hassan Mansour Hassan** (ID: 20220016) — *ML Engineer (this repository)* - Mohamed Emad Abd Al-Moneim Gaafar (ID: 20220489) - Al-Mohanad Ahmed Shaaban Mahmoud (ID: 20220308) --- ## 📖 Thesis & Paper The full technical write-up is available in the thesis document: > *"Omni Parking: End-to-End Smart Parking System — Deep OCR and License Plate Recognition for Edge Devices (LPR-Edge)"* > Thebes Higher Institute of Computer & Management Sciences, 2025–2026. **Key references:** - Vaswani et al. — *Attention Is All You Need*, NeurIPS 2017 - Graves et al. — *Connectionist Temporal Classification*, ICML 2006 - [Machathon 3.0 Dataset](https://www.kaggle.com/competitions/machathon-3) - [Ahmedeko Egypt Cars Plates](https://www.kaggle.com/datasets/ahmedeko/egypt-cars-plates) - [Ultralytics YOLO11](https://www.ultralytics.com/blog/using-ultralytics-yolo11-for-automatic-number-plate-recognition) --- ## 🗂️ Repository Structure ``` egyptian-license-plate-detector/ │ ├── model/ │ ├── backbone.py # CNN feature extractor with SE blocks │ ├── transformer.py # Encoder + slot decoder │ ├── heads.py # Digit, letter, and length output heads │ └── ealpr_v6.py # Full PlateSlotTransformer model │ ├── training/ │ ├── train.py # Training loop (mixed + fine-tuning phases) │ ├── dataset.py # EgyptianPlateDataset with augmentation │ ├── loss.py # Combined slot + length loss │ └── evaluate.py # Exact-match and CER evaluation │ ├── scripts/ │ ├── prepare_dataset.py # Dataset fusion pipeline │ ├── export_tflite.py # PyTorch → TFLite conversion + quantization │ └── benchmark.py # Quantization accuracy sweep │ ├── inference/ │ ├── decode.py # PlateSlotDecoder (argmax + PAD rejection) │ └── pipeline.py # YOLO localization + OCR full pipeline │ ├── configs/ │ ├── v6_mixed.yaml # Mixed-phase training config │ └── v6_finetune.yaml # Real-data fine-tuning config │ ├── models/ # Exported TFLite assets (see releases) ├── checkpoints/ # Training checkpoints (see releases) ├── assets/ # README screenshots and diagrams │ ├── notebooks/ │ ├── dataset_fusion.ipynb # Machathon + Ahmedeko fusion notebook │ ├── training_v6.ipynb # Full training pipeline (Kaggle) │ └── export_eval.ipynb # TFLite export + quantization sweep │ └── README.md ``` --- ## 📄 License This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. --- 
-Made with ❤️ by [Mahmoud Hassan](https://hekal.tech) [![Portfolio](https://img.shields.io/badge/Portfolio-hekal.tech-purple?style=flat-square)](https://hekal.tech) [![GitHub](https://img.shields.io/badge/GitHub-hekal--4e-181717?style=flat-square&logo=github)](https://github.com/hekal-4e) 
+<div align="center">
+
+# 🚗 EALPR V6 — Egyptian Automatic License Plate Recognition
+
+### PlateSlotTransformer: Structured Visual Parsing for Egyptian License Plates
+
+[![Accuracy](https://img.shields.io/badge/Exact--Match%20Accuracy-93.27%25-brightgreen?style=flat-square)](https://github.com/hekal-4e/egyptian-license-plate-detector)
+[![Model Size](https://img.shields.io/badge/TFLite%20Model-7.78%20MB-blue?style=flat-square)](https://github.com/hekal-4e/egyptian-license-plate-detector)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![TFLite](https://img.shields.io/badge/TensorFlow%20Lite-Edge%20Ready-FF6F00?style=flat-square&logo=tensorflow&logoColor=white)](https://tensorflow.org/lite)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+
+<br/>
+
+**A custom deep learning model that reformulates Egyptian license plate recognition as structured slot prediction — achieving 93.27% exact-match accuracy on a locked real-world test set, deployable on-device at 7.78 MB.**
+
+<br/>
+
+<!-- SCREENSHOT PLACEHOLDER: Architecture overview or model prediction demo -->
+<!-- Replace the line below with: ![Demo](assets/demo.gif) -->
+> 📸 **[PLACEHOLDER — Add a demo GIF or prediction screenshot here]**
+
+<br/>
+
+[📖 Read the Thesis](#-thesis--paper) · [🚀 Quick Start](#-quick-start) · [📊 Results](#-results) · [🏗️ Architecture](#️-architecture)
+
+</div>
+
+---
+
+## 📌 Table of Contents
+
+- [Overview](#-overview)
+- [Demo & Screenshots](#-demo--screenshots)
+- [Key Results](#-key-results)
+- [Architecture](#️-architecture)
+- [Dataset](#-dataset)
+- [Quick Start](#-quick-start)
+- [Training](#-training)
+- [Export & Quantization](#-export--quantization)
+- [Flutter Integration](#-flutter-integration)
+- [Comparison with Baseline](#-comparison-with-baseline)
+- [Failure Modes](#-failure-modes)
+- [Project Context](#-project-context)
+- [Thesis & Paper](#-thesis--paper)
+- [License](#-license)
+
+---
+
+## 🔍 Overview
+
+Egyptian license plates contain a fixed-format combination of **3–4 numeric digits** and **2–3 Arabic letters**. Generic OCR engines and CTC-based sequence models fail on this domain because they are not designed for:
+
+- Arabic glyph ambiguity under real-world distortions (glare, blur, perspective)
+- The constrained plate grammar (known structure with optional slots)
+- Edge-device deployment with strict latency and memory constraints
+
+**EALPR V6** solves this by reformulating plate recognition as **structured visual parsing**. Instead of decoding a variable-length character stream (CTC), the model predicts seven fixed semantic slots in parallel — one per plate position — using a Transformer decoder with learned slot queries.
+
+| Approach | Exact-Match Accuracy | Method |
+|---|---|---|
+| V3 CRNN-CTC (baseline) | 75.00% | Temporal sequence + CTC collapse |
+| **V6 PlateSlotTransformer (ours)** | **93.07%** | Parallel slot queries + Transformer |
+| **V6 Dynamic INT8 TFLite (deployed)** | **93.27%** | Quantized edge model |
+
+---
+
+## 🖼️ Demo & Screenshots
+
+### Model Predictions
+
+<!-- SCREENSHOT PLACEHOLDER: Side-by-side prediction examples -->
+<!-- Replace with: ![Predictions](assets/predictions.png) -->
+> 📸 **[PLACEHOLDER — Add a grid of plate images with ground truth vs. predicted labels]**
+
+---
+
+### Training Curves
+
+<!-- SCREENSHOT PLACEHOLDER: Loss history and exact-match accuracy plots (Figure 3.18 from thesis) -->
+<!-- Replace with: ![Training](assets/training_curves.png) -->
+> 📸 **[PLACEHOLDER — Add the training loss + validation accuracy chart]**
+
+---
+
+### Architecture Diagram
+
+<!-- SCREENSHOT PLACEHOLDER: PlateSlotTransformer block diagram (Figure 3.14 from thesis) -->
+<!-- Replace with: ![Architecture](assets/architecture.png) -->
+> 📸 **[PLACEHOLDER — Add the PlateSlotTransformer architecture diagram]**
+
+---
+
+### Flutter App Integration
+
+<!-- SCREENSHOT PLACEHOLDER: App UI showing scanner + verification sheet -->
+<!-- Replace with: ![App](assets/app_screenshots.png) -->
+> 📸 **[PLACEHOLDER — Add app screenshots showing the scanner in action]**
+
+---
+
+## 📊 Key Results
+
+Evaluated on a **locked, stratified real-world test set of 1,574 Egyptian license plate crops** — never used during training or hyperparameter tuning.
+
+### Accuracy
+
+| Metric | Value |
+|---|---|
+| Exact-Match Accuracy (PyTorch FP32) | 93.07% |
+| Exact-Match Accuracy (Dynamic INT8 TFLite) | **93.27%** |
+| Character Error Rate (CER) | 0.0169 |
+| Total Exact-Match Errors | 109 / 1,574 |
+| Improvement over V3 Baseline | **+18.07 pp** |
+| Relative Error Reduction | **72.28%** |
+
+### Quantization Tradeoff
+
+| Model Variant | Size | Exact Match | CER | Integer I/O |
+|---|---|---|---|---|
+| FP32 TFLite | 29.07 MB | 93.07% | 0.01690 | No |
+| Weight-only INT8 | 7.80 MB | 93.01% | 0.01710 | No |
+| **Dynamic Range INT8** ✅ | **7.78 MB** | **93.27%** | **0.01685** | No |
+| Static Full-Integer INT8 | 7.94 MB | 92.69% | 0.01740 | Yes |
+
+> ✅ **Selected for production deployment:** `dynamic_wi8_afp32` — delivers a regularized accuracy *gain* over the FP32 baseline at 73.2% smaller footprint.
+
+### On-Device Runtime (CPH2811 / ARM64)
+
+| Stage | Median Latency | P95 Latency |
+|---|---|---|
+| YOLO Plate Detection | 120 ms | 180 ms |
+| OCR Inference (V6 Slot Transformer) | 280 ms | 360 ms |
+| End-to-End Scan | **480 ms** | **650 ms** |
+
+---
+
+## 🏗️ Architecture
+
+### Overview
+
+```
+Input Image
+     │
+     ▼
+┌─────────────────┐
+│   YOLO Detector │  ← plate_detection.tflite
+│  (Localization) │    640×640 input, YOLOv8-style
+└────────┬────────┘
+         │  tight plate crop (0px padding)
+         ▼
+┌──────────────────────────────────────────────────┐
+│           PlateSlotTransformer (V6)              │  ← plate_ocr.tflite
+│                                                  │
+│  Input: [1, 3, 96, 320]  NCHW, normalized [-1,1] │
+│                                                  │
+│  ┌─────────────────────────────────┐             │
+│  │  CNN Backbone                   │             │
+│  │  Conv-BN-SiLU + SE Residual     │             │
+│  │  [1,3,96,320] → 80 tokens       │             │
+│  └──────────────┬──────────────────┘             │
+│                 │                                │
+│  ┌──────────────▼──────────────────┐             │
+│  │  Transformer Encoder            │             │
+│  │  4 layers, 8 heads, d=256       │             │
+│  │  Global self-attention          │             │
+│  └──────────────┬──────────────────┘             │
+│                 │                                │
+│  ┌──────────────▼──────────────────┐             │
+│  │  Slot Decoder (7 queries)       │             │
+│  │  D0 D1 D2 D3 | L0 L1 L2        │             │
+│  │  Cross-attention over encoder   │             │
+│  └──────────────┬──────────────────┘             │
+│                 │                                │
+│  ┌──────────────▼──────────────────┐             │
+│  │  4 Output Heads (parallel)      │             │
+│  │  digit_logits   [1, 4, 11]      │             │
+│  │  letter_logits  [1, 3, 18]      │             │
+│  │  digit_len      [1, 4]          │             │
+│  │  letter_len     [1, 3]          │             │
+│  └─────────────────────────────────┘             │
+└──────────────────────────────────────────────────┘
+         │
+         ▼
+  Canonical Plate String
+  e.g.  6239 م ق ع
+```
+
+### Why Slot Queries vs. CTC
+
+| Dimension | CRNN-CTC (V3) | PlateSlotTransformer (V6) |
+|---|---|---|
+| Output representation | Variable-length sequence + blank | 4 fixed structured heads |
+| Decoding | CTC collapse, blank removal | Parallel argmax, PAD rejection |
+| Grammar awareness | Post-processing only | Built into digit/letter/length heads |
+| Repeated digits | Prone to collapse errors | Independent slot per position |
+| Global context | Limited (convolutional) | Full self-attention over 80 tokens |
+
+### Output Heads
+
+```
+digit_logits  [1, 4, 11]  →  4 digit slots, classes 0-9 + PAD (idx 10)
+letter_logits [1, 3, 18]  →  3 letter slots, 17 Arabic letters + PAD (idx 17)
+digit_len     [1, 4]      →  active digit count: argmax + 1  →  1..4
+letter_len    [1, 3]      →  active letter count: argmax + 1  →  1..3
+```
+
+**Arabic letter alphabet (17 classes, V6 — Ya ي removed per official Egyptian plate standards):**
+```
+أ  ب  ج  د  ر  س  ص  ط  ع  ف  ق  ك  ل  م  ن  ه  و
+```
+
+---
+
+## 📦 Dataset
+
+### Fusion Pipeline
+
+Two public Egyptian plate datasets were merged into a single unified corpus:
+
+| Source | Raw Entries | Retained | Notes |
+|---|---|---|---|
+| [Machathon 3.0](https://www.kaggle.com/competitions/machathon-3) | 5,279 | 761 | RTL→LTR label correction, invalid-char removal |
+| [Ahmedeko Egypt Cars Plates](https://www.kaggle.com/datasets/ahmedeko/egypt-cars-plates) | 9,947 | 7,332 | English→Arabic transliteration, grammar filter |
+| **Unified real dataset** | **15,226** | **8,093** | Strict plate grammar validation applied |
+
+### Split
+
+| Partition | Images | Notes |
+|---|---|---|
+| Training | 6,519 | Stratified 80% split, `SPLIT_SEED=42` |
+| **Locked test set** | **1,574** | Never touched during training or tuning |
+
+Plate format distribution in training:
+- `L3-D4` (3 letters, 4 digits): 6,037
+- `L2-D4` (2 letters, 4 digits): 192
+- `L2-D3` (2 letters, 3 digits): 152
+- `L3-D3` (3 letters, 3 digits): 138
+
+### Label Normalization
+
+All labels normalized to canonical form: **digits first, then Arabic letters** (LTR order).
+
+English-to-Arabic mapping (Ahmedeko):
+
+```
+A→أ   B→ب   J/G→ج   D→د   R→ر   S/C→س   X→ص
+T→ط   E→ع   F→ف    Q→ق   K→ك   L→ل    M→م
+N→ن   H→ه   W/O→و  Y/I→ي
+```
+
+---
+
+## 🚀 Quick Start
+
+### Requirements
+
+```bash
+pip install torch torchvision torchaudio
+pip install tensorflow  # for TFLite export
+pip install albumentations opencv-python pillow
+pip install numpy pandas scikit-learn tqdm
+```
+
+### Run Inference (PyTorch)
+
+```python
+from model import EALPRv6PlateSlotTransformer
+from inference import decode_plate
+import torch
+from PIL import Image
+
+# Load model
+model = EALPRv6PlateSlotTransformer()
+model.load_state_dict(torch.load("checkpoints/ealpr_v6_best.pth"))
+model.eval()
+
+# Load and preprocess plate crop
+image = Image.open("plate_crop.jpg").convert("RGB")
+
+# Run inference
+with torch.no_grad():
+    result = decode_plate(model, image)
+
+print(result.plate_text)       # e.g. "6239معق"
+print(result.confidence)       # e.g. 0.97
+print(result.digits)           # e.g. "6239"
+print(result.letters)          # e.g. "معق"
+```
+
+### Run Inference (TFLite — Edge Device)
+
+```python
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+
+# Load TFLite model
+interpreter = tf.lite.Interpreter(model_path="models/dynamic_wi8_afp32.tflite")
+interpreter.allocate_tensors()
+
+# Preprocess: resize to 320×96, normalize to [-1, 1], NCHW
+image = Image.open("plate_crop.jpg").convert("RGB").resize((320, 96))
+arr = np.array(image, dtype=np.float32)
+arr = (arr / 255.0 - 0.5) / 0.5             # normalize
+arr = np.transpose(arr, (2, 0, 1))           # HWC → CHW
+arr = np.expand_dims(arr, 0)                 # → [1, 3, 96, 320]
+
+# Run
+input_details = interpreter.get_input_details()
+interpreter.set_tensor(input_details[0]['index'], arr)
+interpreter.invoke()
+
+# Decode outputs
+output_details = interpreter.get_output_details()
+digit_logits  = interpreter.get_tensor(output_details[0]['index'])  # [1, 4, 11]
+letter_logits = interpreter.get_tensor(output_details[1]['index'])  # [1, 3, 18]
+digit_len     = interpreter.get_tensor(output_details[2]['index'])  # [1, 4]
+letter_len    = interpreter.get_tensor(output_details[3]['index'])  # [1, 3]
+
+n_digits  = np.argmax(digit_len)  + 1
+n_letters = np.argmax(letter_len) + 1
+
+DIGITS  = "0123456789"
+LETTERS = "أبجدرسصطعفقكلمنهو"
+
+plate = ""
+for i in range(n_digits):
+    cls = np.argmax(digit_logits[0][i])
+    if cls < 10:
+        plate += DIGITS[cls]
+
+for i in range(n_letters):
+    cls = np.argmax(letter_logits[0][i])
+    if cls < 17:
+        plate += LETTERS[cls]
+
+print(plate)
+```
+
+---
+
+## 🎓 Training
+
+### Reproduce Training
+
+```bash
+# Step 1: Prepare the dataset
+python scripts/prepare_dataset.py \
+    --machathon_dir data/machathon \
+    --ahmedeko_dir  data/ahmedeko \
+    --output_dir    data/unified \
+    --split_seed    42
+
+# Step 2: Train (Mixed phase: synthetic + real)
+python train.py \
+    --config configs/v6_mixed.yaml \
+    --output checkpoints/
+
+# Step 3: Fine-tune on real data only
+python train.py \
+    --config    configs/v6_finetune.yaml \
+    --resume    checkpoints/mixed_best.pth \
+    --output    checkpoints/
+```
+
+### Hyperparameters
+
+| Parameter | Mixed Phase | Fine-tuning Phase |
+|---|---|---|
+| Epochs | 50 | 25 |
+| Batch size | 48 | 48 |
+| Optimizer | AdamW | AdamW |
+| Learning rate | 3×10⁻⁴ | 7×10⁻⁵ |
+| Weight decay | 2×10⁻⁴ | 1×10⁻⁴ |
+| Scheduler | OneCycleLR | OneCycleLR |
+| Gradient clip | 3.0 | 3.0 |
+| Mixed precision | ✅ (CUDA) | ✅ (CUDA) |
+
+**Best checkpoint:** Real fine-tuning phase, epoch 12 — 94.34% internal validation accuracy.
+
+### Loss Function
+
+```
+L = L_digit + L_letter + 0.35 × (L_digit_len + L_letter_len)
+```
+
+All slot losses use label smoothing = 0.02.
+
+### Data Augmentation
+
+Applied during training only:
+
+| Transform | Parameter | Probability |
+|---|---|---|
+| Perspective | scale 0.015–0.06 | 0.45 |
+| Affine shear | -4° to +4° | 0.25 |
+| Brightness/Contrast | limit 0.28 | 0.70 |
+| Gaussian noise | variance 5–45 | 0.35 |
+| Gaussian blur | kernel limit 3 | 0.15 |
+
+---
+
+## 📤 Export & Quantization
+
+### Export to TFLite
+
+```bash
+python scripts/export_tflite.py \
+    --checkpoint  checkpoints/v6_best.pth \
+    --output_dir  models/ \
+    --calib_data  data/unified/test/ \
+    --calib_seed  20260523 \
+    --calib_size  512
+```
+
+This script generates and evaluates all 4 quantization variants, then automatically selects the best-performing candidate based on regularized accuracy gain.
+
+### Model Files
+
+```
+models/
+├── fp32.tflite                  # 29.07 MB — FP32 reference
+├── weight_only_int8.tflite      # 7.80 MB
+├── dynamic_wi8_afp32.tflite     # 7.78 MB ← selected for deployment
+└── static_full_int8.tflite      # 7.94 MB — integer I/O
+```
+
+---
+
+## 📱 Flutter Integration
+
+This model is deployed in the **Omni Parking** Flutter app as part of an end-to-end smart parking system. The integration uses `tflite_flutter` with a dedicated worker isolate so inference does not block the UI thread.
+
+**Key integration contract:**
+
+```dart
+// Input tensor:  [1, 3, 96, 320]  Float32 or INT8 NCHW
+// Output tensors:
+//   digit_logits   [1, 4, 11]
+//   letter_logits  [1, 3, 18]
+//   digit_len      [1, 4]
+//   letter_len     [1, 3]
+
+_ocrInterpreter!.runForMultipleInputs([ocrInput], {
+  _digitLogitsIdx:  raw0,  // [1,4,11]
+  _letterLogitsIdx: raw1,  // [1,3,18]
+  _digitLenIdx:     raw2,  // [1,4]
+  _letterLenIdx:    raw3,  // [1,3]
+});
+```
+
+See the [Omni Parking Flutter App](https://github.com/hekal-4e/omni-parking) for the full mobile application.
+
+---
+
+## 📈 Comparison with Baseline
+
+### V3 CRNN-CTC vs. V6 PlateSlotTransformer
+
+| Dimension | EALPR V3 (CRNN-CTC) | EALPR V6 (PlateSlotTransformer) |
+|---|---|---|
+| Architecture | CRNN + TCN + CTC | CNN + Transformer + Slot Queries |
+| Exact-match accuracy | 75.00% | **93.27%** |
+| Decoding | Sequential CTC collapse | Parallel slot argmax |
+| Grammar enforcement | Post-processing | Model heads (digit/letter/length) |
+| Repeated digit handling | CTC collapse risk | Independent slots |
+| Mobile model size | — | **7.78 MB** (INT8) |
+| Error reduction | — | **72.28% relative** |
+
+---
+
+## ⚠️ Failure Modes
+
+| Failure Source | Effect | Mitigation |
+|---|---|---|
+| Motion blur | Strokes merge, digit edges lost | Guided capture, retake flow |
+| Glare / reflection | Character regions saturated | Operator guidance, field augmentation |
+| Tight YOLO crop | First/last character partially cut | Crop padding, confidence threshold |
+| Arabic glyph similarity | Letter slot confusion (ه/و/ر) | Balanced real data, confusion matrix analysis |
+| Wrong model asset | Decoder receives incompatible shapes | Fail-fast tensor validation at init |
+| Night / low-light | Low contrast, noisy features | Future: night-condition field data |
+
+**Worst per-character error rates on locked test set:**
+
+| Character | Error Rate | Errors / Support |
+|---|---|---|
+| ه (Heh) | 10.81% | 4 / 37 |
+| ر (Ra) | 2.90% | 7 / 241 |
+| س (Seen) | 2.86% | 12 / 420 |
+| 7 | 2.79% | 19 / 682 |
+| 2 | 2.50% | 15 / 600 |
+
+---
+
+## 🏫 Project Context
+
+This repository contains the ML model component of **Omni Parking** — a graduation project at:
+
+> **Thebes Higher Institute of Computer & Management Sciences**
+> Academic Year 2025–2026 · Supervised by Dr. Eman Monir
+
+**Team:**
+- **Mahmoud Hassan Mansour Hassan** (ID: 20220016) — *ML Engineer (this repository)*
+- Mohamed Emad Abd Al-Moneim Gaafar (ID: 20220489)
+- Al-Mohanad Ahmed Shaaban Mahmoud (ID: 20220308)
+
+---
+
+## 📖 Thesis & Paper
+
+The full technical write-up is available in the thesis document:
+
+> *"Omni Parking: End-to-End Smart Parking System — Deep OCR and License Plate Recognition for Edge Devices (LPR-Edge)"*
+> Thebes Higher Institute of Computer & Management Sciences, 2025–2026.
+
+**Key references:**
+- Vaswani et al. — *Attention Is All You Need*, NeurIPS 2017
+- Graves et al. — *Connectionist Temporal Classification*, ICML 2006
+- [Machathon 3.0 Dataset](https://www.kaggle.com/competitions/machathon-3)
+- [Ahmedeko Egypt Cars Plates](https://www.kaggle.com/datasets/ahmedeko/egypt-cars-plates)
+- [Ultralytics YOLO11](https://www.ultralytics.com/blog/using-ultralytics-yolo11-for-automatic-number-plate-recognition)
+
+---
+
+## 🗂️ Repository Structure
+
+```
+egyptian-license-plate-detector/
+│
+├── model/
+│   ├── backbone.py          # CNN feature extractor with SE blocks
+│   ├── transformer.py       # Encoder + slot decoder
+│   ├── heads.py             # Digit, letter, and length output heads
+│   └── ealpr_v6.py          # Full PlateSlotTransformer model
+│
+├── training/
+│   ├── train.py             # Training loop (mixed + fine-tuning phases)
+│   ├── dataset.py           # EgyptianPlateDataset with augmentation
+│   ├── loss.py              # Combined slot + length loss
+│   └── evaluate.py          # Exact-match and CER evaluation
+│
+├── scripts/
+│   ├── prepare_dataset.py   # Dataset fusion pipeline
+│   ├── export_tflite.py     # PyTorch → TFLite conversion + quantization
+│   └── benchmark.py         # Quantization accuracy sweep
+│
+├── inference/
+│   ├── decode.py            # PlateSlotDecoder (argmax + PAD rejection)
+│   └── pipeline.py          # YOLO localization + OCR full pipeline
+│
+├── configs/
+│   ├── v6_mixed.yaml        # Mixed-phase training config
+│   └── v6_finetune.yaml     # Real-data fine-tuning config
+│
+├── models/                  # Exported TFLite assets (see releases)
+├── checkpoints/             # Training checkpoints (see releases)
+├── assets/                  # README screenshots and diagrams
+│
+├── notebooks/
+│   ├── dataset_fusion.ipynb # Machathon + Ahmedeko fusion notebook
+│   ├── training_v6.ipynb    # Full training pipeline (Kaggle)
+│   └── export_eval.ipynb    # TFLite export + quantization sweep
+│
+└── README.md
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+Made with ❤️ by [Mahmoud Hassan](https://hekal.tech)
+
+[![Portfolio](https://img.shields.io/badge/Portfolio-hekal.tech-purple?style=flat-square)](https://hekal.tech)
+[![GitHub](https://img.shields.io/badge/GitHub-hekal--4e-181717?style=flat-square&logo=github)](https://github.com/hekal-4e)
+
+</div>
